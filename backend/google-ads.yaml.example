@@ -1,0 +1,13 @@
+# google-ads.yaml — rename to google-ads.yaml and fill in your credentials
+# This file is gitignored. Never commit your real credentials.
+
+developer_token: YOUR_DEVELOPER_TOKEN_HERE
+client_id: YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com
+client_secret: YOUR_OAUTH_CLIENT_SECRET
+refresh_token: YOUR_REFRESH_TOKEN_FROM_generate_refresh_token.py
+
+# If using a Manager Account (MCC), set your MCC customer ID here:
+# login_customer_id: 1234567890
+
+# The customer ID of the account you want to query (from .env):
+# (This is read from GOOGLE_ADS_CUSTOMER_ID in .env, not needed here)
