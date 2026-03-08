@@ -107,6 +107,15 @@ export interface TimeseriesData {
   points: TimeseriesPoint[];
 }
 
+// ── Warnings ──────────────────────────────────────────────────────────────────
+
+export interface ProductWarning {
+  campaign_name: string;
+  asin: string;
+  last_archer_date: string;
+  days_missing: number;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export interface DateRange {

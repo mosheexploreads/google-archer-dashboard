@@ -14,7 +14,7 @@ from typing import Optional, List, Literal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint
+from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning
 
 GroupBy = Literal["day", "week", "month"]
 
@@ -321,6 +321,57 @@ def get_timeseries(
             rpc=_safe_float(r.rpc),
             profit=float(r.profit or 0),
             roas=_safe_float(r.roas),
+        )
+        for r in rows
+    ]
+
+
+# ── Product warnings (Archer link removed) ────────────────────────────────────
+
+def get_warnings(db: Session) -> List[ProductWarning]:
+    """
+    Return enabled campaigns whose ASIN previously appeared in Archer but
+    has been absent for 2+ days — indicating the product was removed.
+    """
+    sql = text("""
+        WITH latest_status AS (
+            SELECT g.campaign_id, g.campaign_name, g.asin
+            FROM google_ads_campaign_day g
+            INNER JOIN (
+                SELECT campaign_id, MAX(date) AS max_date
+                FROM google_ads_campaign_day
+                WHERE campaign_status IS NOT NULL
+                GROUP BY campaign_id
+            ) ld ON g.campaign_id = ld.campaign_id AND g.date = ld.max_date
+            WHERE g.campaign_status = 'Enabled'
+              AND g.asin IS NOT NULL
+        ),
+        archer_last AS (
+            SELECT asin, MAX(date) AS last_date
+            FROM archer_product_day
+            GROUP BY asin
+        ),
+        max_archer AS (
+            SELECT MAX(date) AS max_date FROM archer_product_day
+        )
+        SELECT DISTINCT
+            ls.campaign_name,
+            ls.asin,
+            al.last_date        AS last_archer_date,
+            CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER) AS days_missing
+        FROM latest_status ls
+        JOIN archer_last al ON ls.asin = al.asin
+        CROSS JOIN max_archer ma
+        WHERE CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER) >= 2
+        ORDER BY al.last_date ASC
+    """)
+    rows = db.execute(sql).fetchall()
+    return [
+        ProductWarning(
+            campaign_name=r.campaign_name,
+            asin=r.asin,
+            last_archer_date=str(r.last_archer_date),
+            days_missing=int(r.days_missing),
         )
         for r in rows
     ]

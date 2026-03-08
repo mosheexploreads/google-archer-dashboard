@@ -132,3 +132,16 @@ class HealthResponse(BaseModel):
     status: str
     db_ok: bool
     version: str = "1.0.0"
+
+
+# ── Warnings ──────────────────────────────────────────────────────────────────
+
+class ProductWarning(BaseModel):
+    campaign_name: str
+    asin: str
+    last_archer_date: str
+    days_missing: int
+
+
+class WarningsResponse(BaseModel):
+    warnings: List[ProductWarning]

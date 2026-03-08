@@ -8,8 +8,10 @@ import { CampaignTable } from "./components/table/CampaignTable";
 import { DateBreakdownTable } from "./components/table/DateBreakdownTable";
 import { ExportModal } from "./components/export/ExportModal";
 import { CsvUpload } from "./components/shared/CsvUpload";
+import { WarningBanner } from "./components/shared/WarningBanner";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRefresh } from "./hooks/useRefresh";
+import { useWarnings } from "./hooks/useWarnings";
 import type { DateRange, GroupBy, DateRow } from "./types";
 
 function daysAgo(n: number): string {
@@ -33,6 +35,7 @@ export default function App() {
     useDashboardData(dateRange.from, dateRange.to);
 
   const { syncStatus, loadStatus, handleTrigger, triggering } = useRefresh(reload);
+  const { warnings, reload: reloadWarnings } = useWarnings();
 
   useEffect(() => {
     loadStatus();
@@ -51,6 +54,9 @@ export default function App() {
         <GroupingToggle value={groupby} onChange={setGroupby} />
       </div>
 
+      {/* Archer removal warnings */}
+      <WarningBanner warnings={warnings} />
+
       {/* Error banner */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
@@ -68,7 +74,7 @@ export default function App() {
       <DateBreakdownTable points={timeseries?.points ?? []} loading={loading} />
 
       {/* CSV upload */}
-      <CsvUpload onSuccess={reload} />
+      <CsvUpload onSuccess={() => { reload(); reloadWarnings(); }} />
 
       {/* Two-level expandable campaign table */}
       <CampaignTable
