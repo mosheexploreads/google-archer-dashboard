@@ -42,6 +42,7 @@ class CampaignRow(BaseModel):
     acos: Optional[float]
     units_sold: int
     current_status: Optional[str] = None
+    first_seen: Optional[str] = None
 
 
 class CampaignsResponse(BaseModel):

@@ -134,10 +134,16 @@ def get_campaigns(
         "  CASE WHEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0) > 0"
         "       THEN SUM(g.spend_usd)"
         "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)   END AS acos,"
-        "  ls.campaign_status                                                   AS current_status"
+        "  ls.campaign_status                                                   AS current_status,"
+        "  fs.first_seen                                                        AS first_seen"
         " FROM google_ads_campaign_day g"
         " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
         + _CC_SUBQUERY +
+        " LEFT JOIN ("
+        "   SELECT campaign_id, MIN(date) AS first_seen"
+        "   FROM google_ads_campaign_day"
+        "   GROUP BY campaign_id"
+        " ) fs ON g.campaign_id = fs.campaign_id"
         " LEFT JOIN ("
         "   SELECT g2.campaign_id, g2.campaign_status"
         "   FROM google_ads_campaign_day g2"
@@ -185,6 +191,7 @@ def get_campaigns(
             acos=_safe_float(r.acos),
             units_sold=int(r.units_sold or 0),
             current_status=r.current_status,
+            first_seen=str(r.first_seen) if r.first_seen else None,
         )
         for r in rows
     ]

@@ -55,6 +55,7 @@ export interface CampaignRow {
   acos: number | null;
   units_sold: number;
   current_status: string | null;
+  first_seen: string | null;
 }
 
 export interface CampaignsData {
