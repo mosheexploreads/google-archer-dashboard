@@ -51,14 +51,22 @@ export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, 
           <td className={`${tdBase} text-gray-300 text-center`}>└</td>
           {/* period in Campaign column */}
           <td className={`${tdBase} font-mono text-gray-500`}>{row.period}</td>
+          {/* Status placeholder */}
+          <td className={tdBase} />
+          {/* Age placeholder */}
+          <td className={tdBase} />
           <td className={`${tdBase} text-right`}>{fmtNumber(row.impressions)}</td>
           <td className={`${tdBase} text-right`}>{fmtNumber(row.clicks)}</td>
           <td className={`${tdBase} text-right`}>{fmtPct(row.ctr)}</td>
           <td className={`${tdBase} text-right`}>{fmtUSD(row.spend_usd)}</td>
           <td className={`${tdBase} text-right`}>{fmtUSD(row.cpc)}</td>
+          {/* CPA */}
+          <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.spend_usd / row.orders : null)}</td>
           <td className={`${tdBase} text-right`}>{fmtNumber(row.orders)}</td>
           <td className={`${tdBase} text-right`}>{fmtPct(row.conv_rate)}</td>
           <td className={`${tdBase} text-right`}>{fmtUSD(row.revenue_usd)}</td>
+          {/* AOV */}
+          <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
           <td className={`${tdBase} text-right`}>{fmtRPC(row.rpc)}</td>
           <td className={`${tdBase} text-right font-medium ${row.profit > 0 ? "text-green-600" : row.profit < 0 ? "text-red-500" : ""}`}>
             {fmtUSD(row.profit)}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { TableFilters } from "./TableFilters";
-import type { StatusOption, AgeOption } from "./TableFilters";
+import type { StatusOption } from "./TableFilters";
 import { DateDrillDown } from "./DateDrillDown";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
 import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir } from "../../types";
@@ -26,12 +26,12 @@ interface Props {
   loading: boolean;
   dateRange: DateRange;
   groupby: GroupBy;
-  onExport: () => void;
+  onExport: (filteredRows: CampaignRow[]) => void;
   /** Shared date-row cache, so ExportModal can access all fetched date data */
   dateDataRef: React.MutableRefObject<Record<string, DateRow[]>>;
 }
 
-const COL_SPAN = 14; // toggle + Campaign + Age + 11 metric columns
+const COL_SPAN = 17; // toggle + Campaign + Status + Age + 13 metric columns
 
 function ageDays(firstSeen: string | null): number | null {
   if (!firstSeen) return null;
@@ -49,7 +49,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const [campaignFilter, setCampaignFilter] = useState("");
   const [asinFilter, setAsinFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusOption>("All");
-  const [ageFilter, setAgeFilter]       = useState<AgeOption>("All");
+  const [ageMin, setAgeMin]             = useState<number | "">("");
   const [sortKey, setSortKey]       = useState<SortKey>("spend_usd");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [expanded, setExpanded]     = useState<Set<string>>(new Set());
@@ -84,14 +84,10 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
     if (statusFilter !== "All") {
       data = data.filter((r) => r.current_status === statusFilter);
     }
-    if (ageFilter !== "All") {
+    if (ageMin !== "") {
       data = data.filter((r) => {
         const d = ageDays(r.first_seen);
-        if (d === null) return false;
-        if (ageFilter === "<30d")   return d < 30;
-        if (ageFilter === "30–90d") return d >= 30 && d <= 90;
-        if (ageFilter === "90d+")  return d > 90;
-        return true;
+        return d !== null && d >= ageMin;
       });
     }
     return [...data].sort((a, b) => {
@@ -105,7 +101,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
       }
       return sortDir === "asc" ? av - bv : bv - av;
     });
-  }, [rows, campaignFilter, asinFilter, statusFilter, ageFilter, sortKey, sortDir]);
+  }, [rows, campaignFilter, asinFilter, statusFilter, ageMin, sortKey, sortDir]);
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
@@ -120,8 +116,10 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const totProfit      = totRevenue - totSpend;
   const totCtr         = totImpressions > 0 ? totClicks / totImpressions : null;
   const totCpc         = totClicks > 0 ? totSpend / totClicks : null;
+  const totCpa         = totOrders > 0 ? totSpend / totOrders : null;
   const totConvRate    = totClicks > 0 ? totOrders / totClicks : null;
   const totRpc         = totClicks > 0 ? totRevenue / totClicks : null;
+  const totAov         = totOrders > 0 ? totRevenue / totOrders : null;
   const totRoas        = totSpend > 0 ? totRevenue / totSpend : null;
 
   const thBase = "px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none whitespace-nowrap";
@@ -141,14 +139,14 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           campaignFilter={campaignFilter}
           asinFilter={asinFilter}
           statusFilter={statusFilter}
-          ageFilter={ageFilter}
+          ageMin={ageMin}
           onCampaignChange={setCampaignFilter}
           onAsinChange={setAsinFilter}
           onStatusChange={setStatusFilter}
-          onAgeChange={setAgeFilter}
+          onAgeMinChange={setAgeMin}
         />
         <button
-          onClick={onExport}
+          onClick={() => onExport(filtered)}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
         >
           ↓ Export CSV
@@ -163,6 +161,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={thSort} style={{ minWidth: 160, maxWidth: 240 }} onClick={() => toggleSort("campaign_name")}>
                 Campaign <SortIcon col="campaign_name" />
               </th>
+              <th className={`${thBase} text-center`} style={{ minWidth: 72 }}>Status</th>
               <th className={`${thBase} text-right`} style={{ minWidth: 60 }}>Age</th>
               <th className={`${thSort} text-right`} style={{ minWidth: 72 }} onClick={() => toggleSort("impressions")}>
                 Impr. <SortIcon col="impressions" />
@@ -179,6 +178,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={`${thSort} text-right`} style={{ minWidth: 66 }} onClick={() => toggleSort("cpc")}>
                 CPC <SortIcon col="cpc" />
               </th>
+              <th className={`${thBase} text-right`} style={{ minWidth: 66 }}>CPA</th>
               <th className={`${thSort} text-right`} style={{ minWidth: 56 }} onClick={() => toggleSort("orders")}>
                 Orders <SortIcon col="orders" />
               </th>
@@ -188,6 +188,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={`${thSort} text-right`} style={{ minWidth: 76 }} onClick={() => toggleSort("revenue_usd")}>
                 Revenue <SortIcon col="revenue_usd" />
               </th>
+              <th className={`${thBase} text-right`} style={{ minWidth: 66 }}>AOV</th>
               <th className={`${thSort} text-right`} style={{ minWidth: 64 }} onClick={() => toggleSort("rpc")}>
                 RPC <SortIcon col="rpc" />
               </th>
@@ -231,15 +232,30 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                         </div>
                       )}
                     </td>
+                    <td className={`${tdBase} text-center`}>
+                      {row.current_status ? (
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          row.current_status === "Enabled"
+                            ? "bg-green-100 text-green-700"
+                            : row.current_status === "Paused"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}>
+                          {row.current_status}
+                        </span>
+                      ) : "—"}
+                    </td>
                     <td className={`${tdBase} text-right`}>{fmtAge(ageDays(row.first_seen))}</td>
                     <td className={`${tdBase} text-right`}>{fmtNumber(row.impressions)}</td>
                     <td className={`${tdBase} text-right`}>{fmtNumber(row.clicks)}</td>
                     <td className={`${tdBase} text-right`}>{fmtPct(row.ctr)}</td>
                     <td className={`${tdBase} text-right`}>{fmtUSD(row.spend_usd)}</td>
                     <td className={`${tdBase} text-right`}>{fmtUSD(row.cpc)}</td>
+                    <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.spend_usd / row.orders : null)}</td>
                     <td className={`${tdBase} text-right`}>{fmtNumber(row.orders)}</td>
                     <td className={`${tdBase} text-right`}>{fmtPct(row.conv_rate)}</td>
                     <td className={`${tdBase} text-right`}>{fmtUSD(row.revenue_usd)}</td>
+                    <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
                     <td className={`${tdBase} text-right`}>{fmtRPC(row.rpc)}</td>
                     <td className={`${tdBase} text-right font-medium ${row.profit > 0 ? "text-green-600" : row.profit < 0 ? "text-red-500" : ""}`}>
                       {fmtUSD(row.profit)}
@@ -273,14 +289,17 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                 <td className="px-2 py-2 bg-gray-50" />
                 <td className="px-2 py-2 text-xs font-semibold text-gray-700 bg-gray-50">Total</td>
                 <td className={tfBase} />
+                <td className={tfBase} />
                 <td className={tfBase}>{fmtNumber(totImpressions)}</td>
                 <td className={tfBase}>{fmtNumber(totClicks)}</td>
                 <td className={tfBase}>{fmtPct(totCtr)}</td>
                 <td className={tfBase}>{fmtUSD(totSpend)}</td>
                 <td className={tfBase}>{fmtUSD(totCpc)}</td>
+                <td className={tfBase}>{fmtUSD(totCpa)}</td>
                 <td className={tfBase}>{fmtNumber(totOrders)}</td>
                 <td className={tfBase}>{fmtPct(totConvRate)}</td>
                 <td className={tfBase}>{fmtUSD(totRevenue)}</td>
+                <td className={tfBase}>{fmtUSD(totAov)}</td>
                 <td className={tfBase}>{fmtRPC(totRpc)}</td>
                 <td className={`${tfBase} ${totProfit > 0 ? "text-green-600" : totProfit < 0 ? "text-red-500" : ""}`}>{fmtUSD(totProfit)}</td>
                 <td className={`${tfBase} ${(totRoas ?? 0) > 1 ? "text-green-600" : (totRoas ?? 0) < 1 && totRoas != null ? "text-red-500" : ""}`}>{fmtROAS(totRoas)}</td>

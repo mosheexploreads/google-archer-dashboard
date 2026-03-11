@@ -12,7 +12,7 @@ import { WarningBanner } from "./components/shared/WarningBanner";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRefresh } from "./hooks/useRefresh";
 import { useWarnings } from "./hooks/useWarnings";
-import type { DateRange, GroupBy, DateRow } from "./types";
+import type { DateRange, GroupBy, DateRow, CampaignRow } from "./types";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -27,6 +27,7 @@ export default function App() {
   });
   const [groupby, setGroupby] = useState<GroupBy>("day");
   const [showExport, setShowExport] = useState(false);
+  const [exportRows, setExportRows] = useState<CampaignRow[]>([]);
 
   // Shared cache for date drill-down data — populated by DateDrillDown on expand
   const dateDataRef = useRef<Record<string, DateRow[]>>({});
@@ -82,14 +83,14 @@ export default function App() {
         loading={loading}
         dateRange={dateRange}
         groupby={groupby}
-        onExport={() => setShowExport(true)}
+        onExport={(filteredRows) => { setExportRows(filteredRows); setShowExport(true); }}
         dateDataRef={dateDataRef}
       />
 
       {/* CSV Export modal */}
       {showExport && (
         <ExportModal
-          campaigns={campaigns?.rows ?? []}
+          campaigns={exportRows}
           dateData={dateDataRef.current}
           dateRange={dateRange}
           onClose={() => setShowExport(false)}
