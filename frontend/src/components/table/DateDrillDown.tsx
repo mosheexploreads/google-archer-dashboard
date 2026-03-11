@@ -41,7 +41,7 @@ export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, 
     );
   }
 
-  const tdBase = "px-2 py-1.5 text-xs text-gray-600 whitespace-nowrap bg-blue-50/30";
+  const tdBase = "px-1.5 py-1.5 text-xs text-gray-600 whitespace-nowrap bg-blue-50/30";
 
   return (
     <>

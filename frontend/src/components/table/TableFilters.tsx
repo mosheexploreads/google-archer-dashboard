@@ -6,24 +6,34 @@ interface Props {
   asinFilter: string;
   statusFilter: StatusOption;
   ageMin: number | "";
+  ageMax: number | "";
   onCampaignChange: (v: string) => void;
   onAsinChange: (v: string) => void;
   onStatusChange: (v: StatusOption) => void;
   onAgeMinChange: (v: number | "") => void;
+  onAgeMaxChange: (v: number | "") => void;
 }
 
 export type { StatusOption };
+
+function parseDay(val: string): number | "" {
+  return val === "" ? "" : Math.max(0, parseInt(val, 10) || 0);
+}
 
 export function TableFilters({
   campaignFilter,
   asinFilter,
   statusFilter,
   ageMin,
+  ageMax,
   onCampaignChange,
   onAsinChange,
   onStatusChange,
   onAgeMinChange,
+  onAgeMaxChange,
 }: Props) {
+  const hasAgeFilter = ageMin !== "" || ageMax !== "";
+
   return (
     <div className="flex gap-3 flex-wrap items-center">
       <input
@@ -56,24 +66,30 @@ export function TableFilters({
           </button>
         ))}
       </div>
-      {/* Age filter — min age in days */}
+      {/* Age range filter */}
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-gray-500 whitespace-nowrap">Age ≥</span>
+        <span className="text-xs text-gray-500 whitespace-nowrap">Age</span>
         <input
           type="number"
           min={0}
-          placeholder="days"
+          placeholder="min"
           value={ageMin}
-          onChange={(e) => {
-            const val = e.target.value;
-            onAgeMinChange(val === "" ? "" : Math.max(0, parseInt(val, 10) || 0));
-          }}
-          className="border border-gray-300 rounded-md px-2 py-1.5 text-xs w-20 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onChange={(e) => onAgeMinChange(parseDay(e.target.value))}
+          className="border border-gray-300 rounded-md px-2 py-1.5 text-xs w-16 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <span className="text-xs text-gray-400">–</span>
+        <input
+          type="number"
+          min={0}
+          placeholder="max"
+          value={ageMax}
+          onChange={(e) => onAgeMaxChange(parseDay(e.target.value))}
+          className="border border-gray-300 rounded-md px-2 py-1.5 text-xs w-16 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <span className="text-xs text-gray-500">d</span>
-        {ageMin !== "" && (
+        {hasAgeFilter && (
           <button
-            onClick={() => onAgeMinChange("")}
+            onClick={() => { onAgeMinChange(""); onAgeMaxChange(""); }}
             className="text-xs text-gray-400 hover:text-gray-600"
             title="Clear age filter"
           >

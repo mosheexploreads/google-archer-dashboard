@@ -50,6 +50,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const [asinFilter, setAsinFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusOption>("All");
   const [ageMin, setAgeMin]             = useState<number | "">("");
+  const [ageMax, setAgeMax]             = useState<number | "">("");
   const [sortKey, setSortKey]       = useState<SortKey>("spend_usd");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [expanded, setExpanded]     = useState<Set<string>>(new Set());
@@ -84,10 +85,13 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
     if (statusFilter !== "All") {
       data = data.filter((r) => r.current_status === statusFilter);
     }
-    if (ageMin !== "") {
+    if (ageMin !== "" || ageMax !== "") {
       data = data.filter((r) => {
         const d = ageDays(r.first_seen);
-        return d !== null && d >= ageMin;
+        if (d === null) return false;
+        if (ageMin !== "" && d < ageMin) return false;
+        if (ageMax !== "" && d > ageMax) return false;
+        return true;
       });
     }
     return [...data].sort((a, b) => {
@@ -101,7 +105,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
       }
       return sortDir === "asc" ? av - bv : bv - av;
     });
-  }, [rows, campaignFilter, asinFilter, statusFilter, ageMin, sortKey, sortDir]);
+  }, [rows, campaignFilter, asinFilter, statusFilter, ageMin, ageMax, sortKey, sortDir]);
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
@@ -122,10 +126,10 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const totAov         = totOrders > 0 ? totRevenue / totOrders : null;
   const totRoas        = totSpend > 0 ? totRevenue / totSpend : null;
 
-  const thBase = "px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none whitespace-nowrap";
+  const thBase = "px-1.5 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider select-none whitespace-nowrap";
   const thSort = `${thBase} cursor-pointer hover:bg-gray-100`;
-  const tdBase = "px-2 py-2 text-xs text-gray-800 whitespace-nowrap";
-  const tfBase = "px-2 py-2 text-right text-xs font-semibold text-gray-700 whitespace-nowrap bg-gray-50";
+  const tdBase = "px-1.5 py-1.5 text-xs text-gray-800 whitespace-nowrap";
+  const tfBase = "px-1.5 py-2 text-right text-xs font-semibold text-gray-700 whitespace-nowrap bg-gray-50";
 
   if (loading) {
     return <div className="bg-white rounded-lg border border-gray-200 p-5 h-48 animate-pulse" />;
@@ -140,10 +144,12 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           asinFilter={asinFilter}
           statusFilter={statusFilter}
           ageMin={ageMin}
+          ageMax={ageMax}
           onCampaignChange={setCampaignFilter}
           onAsinChange={setAsinFilter}
           onStatusChange={setStatusFilter}
           onAgeMinChange={setAgeMin}
+          onAgeMaxChange={setAgeMax}
         />
         <button
           onClick={() => onExport(filtered)}
@@ -157,45 +163,45 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className={thBase} style={{ width: 24 }} />
-              <th className={thSort} style={{ minWidth: 160, maxWidth: 240 }} onClick={() => toggleSort("campaign_name")}>
+              <th className={thBase} style={{ width: 20 }} />
+              <th className={thSort} style={{ minWidth: 140, maxWidth: 220 }} onClick={() => toggleSort("campaign_name")}>
                 Campaign <SortIcon col="campaign_name" />
               </th>
-              <th className={`${thBase} text-center`} style={{ minWidth: 72 }}>Status</th>
-              <th className={`${thBase} text-right`} style={{ minWidth: 60 }}>Age</th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 72 }} onClick={() => toggleSort("impressions")}>
+              <th className={`${thBase} text-center`} style={{ minWidth: 58 }}>Status</th>
+              <th className={`${thBase} text-right`} style={{ minWidth: 46 }}>Age</th>
+              <th className={`${thSort} text-right`} style={{ minWidth: 60 }} onClick={() => toggleSort("impressions")}>
                 Impr. <SortIcon col="impressions" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 60 }} onClick={() => toggleSort("clicks")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 50 }} onClick={() => toggleSort("clicks")}>
                 Clicks <SortIcon col="clicks" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 52 }} onClick={() => toggleSort("ctr")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 44 }} onClick={() => toggleSort("ctr")}>
                 CTR <SortIcon col="ctr" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 72 }} onClick={() => toggleSort("spend_usd")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 62 }} onClick={() => toggleSort("spend_usd")}>
                 Cost <SortIcon col="spend_usd" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 66 }} onClick={() => toggleSort("cpc")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 56 }} onClick={() => toggleSort("cpc")}>
                 CPC <SortIcon col="cpc" />
               </th>
-              <th className={`${thBase} text-right`} style={{ minWidth: 66 }}>CPA</th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 56 }} onClick={() => toggleSort("orders")}>
+              <th className={`${thBase} text-right`} style={{ minWidth: 56 }}>CPA</th>
+              <th className={`${thSort} text-right`} style={{ minWidth: 50 }} onClick={() => toggleSort("orders")}>
                 Orders <SortIcon col="orders" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 62 }} onClick={() => toggleSort("conv_rate")}>
-                Conv. Rate <SortIcon col="conv_rate" />
+              <th className={`${thSort} text-right`} style={{ minWidth: 48 }} onClick={() => toggleSort("conv_rate")}>
+                Conv% <SortIcon col="conv_rate" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 76 }} onClick={() => toggleSort("revenue_usd")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 66 }} onClick={() => toggleSort("revenue_usd")}>
                 Revenue <SortIcon col="revenue_usd" />
               </th>
-              <th className={`${thBase} text-right`} style={{ minWidth: 66 }}>AOV</th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 64 }} onClick={() => toggleSort("rpc")}>
+              <th className={`${thBase} text-right`} style={{ minWidth: 56 }}>AOV</th>
+              <th className={`${thSort} text-right`} style={{ minWidth: 52 }} onClick={() => toggleSort("rpc")}>
                 RPC <SortIcon col="rpc" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 72 }} onClick={() => toggleSort("profit")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 62 }} onClick={() => toggleSort("profit")}>
                 Profit <SortIcon col="profit" />
               </th>
-              <th className={`${thSort} text-right`} style={{ minWidth: 56 }} onClick={() => toggleSort("roas")}>
+              <th className={`${thSort} text-right`} style={{ minWidth: 50 }} onClick={() => toggleSort("roas")}>
                 ROAS <SortIcon col="roas" />
               </th>
             </tr>
