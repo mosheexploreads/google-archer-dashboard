@@ -23,8 +23,10 @@ export function DateBreakdownTable({ points, loading }: Props) {
   const totProfit      = totRevenue - totSpend;
   const totCtr         = totImpressions > 0 ? totClicks / totImpressions : null;
   const totCpc         = totClicks > 0 ? totSpend / totClicks : null;
+  const totCpa         = totOrders > 0 ? totSpend / totOrders : null;
   const totConvRate    = totClicks > 0 ? totOrders / totClicks : null;
   const totRpc         = totClicks > 0 ? totRevenue / totClicks : null;
+  const totAov         = totOrders > 0 ? totRevenue / totOrders : null;
   const totRoas        = totSpend > 0 ? totRevenue / totSpend : null;
 
   const th = "px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap";
@@ -48,9 +50,11 @@ export function DateBreakdownTable({ points, loading }: Props) {
               <th className={th}>CTR</th>
               <th className={th}>Cost</th>
               <th className={th}>CPC</th>
+              <th className={th}>CPA</th>
               <th className={th}>Orders</th>
               <th className={th}>Conv. Rate</th>
               <th className={th}>Revenue</th>
+              <th className={th}>AOV</th>
               <th className={th}>RPC</th>
               <th className={th}>Profit</th>
               <th className={th}>ROAS</th>
@@ -65,9 +69,11 @@ export function DateBreakdownTable({ points, loading }: Props) {
                 <td className={td}>{fmtPct(row.ctr)}</td>
                 <td className={td}>{fmtUSD(row.spend_usd)}</td>
                 <td className={td}>{fmtUSD(row.cpc)}</td>
+                <td className={td}>{fmtUSD(row.orders > 0 ? row.spend_usd / row.orders : null)}</td>
                 <td className={td}>{fmtNumber(row.orders)}</td>
                 <td className={td}>{fmtPct(row.conv_rate)}</td>
                 <td className={td}>{fmtUSD(row.revenue_usd)}</td>
+                <td className={td}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
                 <td className={td}>{fmtRPC(row.rpc)}</td>
                 <td className={`${td} font-medium ${row.profit > 0 ? "text-green-600" : row.profit < 0 ? "text-red-500" : ""}`}>
                   {fmtUSD(row.profit)}
@@ -86,9 +92,11 @@ export function DateBreakdownTable({ points, loading }: Props) {
               <td className={tfBase}>{fmtPct(totCtr)}</td>
               <td className={tfBase}>{fmtUSD(totSpend)}</td>
               <td className={tfBase}>{fmtUSD(totCpc)}</td>
+              <td className={tfBase}>{fmtUSD(totCpa)}</td>
               <td className={tfBase}>{fmtNumber(totOrders)}</td>
               <td className={tfBase}>{fmtPct(totConvRate)}</td>
               <td className={tfBase}>{fmtUSD(totRevenue)}</td>
+              <td className={tfBase}>{fmtUSD(totAov)}</td>
               <td className={tfBase}>{fmtRPC(totRpc)}</td>
               <td className={`${tfBase} ${totProfit > 0 ? "text-green-600" : totProfit < 0 ? "text-red-500" : ""}`}>{fmtUSD(totProfit)}</td>
               <td className={`${tfBase} ${(totRoas ?? 0) > 1 ? "text-green-600" : (totRoas ?? 0) < 1 && totRoas != null ? "text-red-500" : ""}`}>{fmtROAS(totRoas)}</td>
