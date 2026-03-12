@@ -159,9 +159,9 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
         </button>
       </div>
 
-      <div className="overflow-auto max-h-[600px]">
+      <div style={{ overflowY: "auto", overflowX: "auto", maxHeight: "500px" }}>
         <table className="w-full">
-          <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
+          <thead className="bg-gray-50 border-b border-gray-200" style={{ position: "sticky", top: 0, zIndex: 10 }}>
             <tr>
               <th className={thBase} style={{ width: 20 }} />
               <th className={thSort} style={{ minWidth: 140, maxWidth: 220 }} onClick={() => toggleSort("campaign_name")}>
@@ -290,8 +290,8 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
             })}
           </tbody>
           {filtered.length > 0 && (
-            <tfoot className="sticky bottom-0 z-10 border-t-2 border-gray-300">
-              <tr>
+            <tfoot>
+              <tr className="border-t-2 border-gray-300" style={{ position: "sticky", bottom: 0, zIndex: 10 }}>
                 <td className="px-2 py-2 bg-gray-50" />
                 <td className="px-2 py-2 text-xs font-semibold text-gray-700 bg-gray-50">Total</td>
                 <td className={tfBase} />
