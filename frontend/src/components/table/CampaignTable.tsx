@@ -136,7 +136,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
       {/* Toolbar: filters + export */}
       <div className="p-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
         <TableFilters
