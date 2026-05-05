@@ -139,6 +139,42 @@ export interface DetailedExportRow {
   units_sold: number;
 }
 
+// ── Testing ───────────────────────────────────────────────────────────────────
+
+export type TestAction = "testing" | "cut" | "scale_bid" | "mature_bid" | "no_data";
+
+export interface TestCampaignStatus {
+  id: number;
+  batch_id: number;
+  batch_name: string;
+  campaign_name: string;
+  asin: string | null;
+  expected_aov: number;
+  cut_threshold: number;
+  clicks: number;
+  orders: number;
+  spend_usd: number;
+  revenue_usd: number;
+  rpc: number | null;
+  cpc: number | null;
+  action: TestAction;
+  new_bid: number | null;
+  action_reason: string;
+}
+
+export interface TestStatusData {
+  campaigns: TestCampaignStatus[];
+  total: number;
+  needs_action: number;
+}
+
+export interface TestBatchUploadResult {
+  batch_id: number;
+  batch_name: string;
+  campaigns_added: number;
+  message: string;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export interface DateRange {

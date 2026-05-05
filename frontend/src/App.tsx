@@ -9,10 +9,13 @@ import { DateBreakdownTable } from "./components/table/DateBreakdownTable";
 import { ExportModal } from "./components/export/ExportModal";
 import { CsvUpload } from "./components/shared/CsvUpload";
 import { WarningBanner } from "./components/shared/WarningBanner";
+import { TestingPage } from "./components/testing/TestingPage";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRefresh } from "./hooks/useRefresh";
 import { useWarnings } from "./hooks/useWarnings";
 import type { DateRange, GroupBy, DateRow, CampaignRow } from "./types";
+
+type Tab = "dashboard" | "testing";
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -21,6 +24,7 @@ function daysAgo(n: number): string {
 }
 
 export default function App() {
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [dateRange, setDateRange] = useState<DateRange>({
     from: daysAgo(7),
     to: daysAgo(1),
@@ -49,6 +53,26 @@ export default function App() {
 
   return (
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
+      {/* Tab navigation */}
+      <div className="flex gap-1 border-b border-gray-200 -mb-2">
+        {(["dashboard", "testing"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 text-sm font-medium capitalize rounded-t transition-colors ${
+              tab === t
+                ? "text-blue-600 border-b-2 border-blue-600 bg-white"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {t === "dashboard" ? "Dashboard" : "Testing"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "testing" && <TestingPage />}
+
+      {tab === "dashboard" && <>
       {/* Controls row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <DateRangeSelector value={dateRange} onChange={setDateRange} />
@@ -96,6 +120,7 @@ export default function App() {
           onClose={() => setShowExport(false)}
         />
       )}
+      </>}
     </AppShell>
   );
 }

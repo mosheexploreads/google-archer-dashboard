@@ -172,3 +172,37 @@ class DetailedExportRow(BaseModel):
 
 class DetailedExportResponse(BaseModel):
     rows: List[DetailedExportRow]
+
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+
+class TestBatchUploadResult(BaseModel):
+    batch_id: int
+    batch_name: str
+    campaigns_added: int
+    message: str
+
+
+class TestCampaignStatus(BaseModel):
+    id: int
+    batch_id: int
+    batch_name: str
+    campaign_name: str
+    asin: Optional[str]
+    expected_aov: float
+    cut_threshold: int
+    clicks: int
+    orders: int
+    spend_usd: float
+    revenue_usd: float
+    rpc: Optional[float]
+    cpc: Optional[float]
+    action: str            # "testing" | "cut" | "scale_bid" | "mature_bid" | "no_data"
+    new_bid: Optional[float]
+    action_reason: str
+
+
+class TestStatusResponse(BaseModel):
+    campaigns: List[TestCampaignStatus]
+    total: int
+    needs_action: int

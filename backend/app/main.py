@@ -68,11 +68,13 @@ from .api.routes_health import router as health_router
 from .api.routes_sync import router as sync_router
 from .api.routes_dashboard import router as dashboard_router
 from .api.routes_upload import router as upload_router
+from .api.routes_testing import router as testing_router
 
 app.include_router(health_router, prefix="/api", tags=["health"])
 app.include_router(sync_router, tags=["sync"])
 app.include_router(dashboard_router, tags=["dashboard"])
 app.include_router(upload_router, tags=["upload"])
+app.include_router(testing_router, tags=["testing"])
 
 # Serve built React frontend (production only — not present in local dev)
 import os

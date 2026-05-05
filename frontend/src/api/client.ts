@@ -7,6 +7,8 @@ import type {
   SyncStatus,
   GroupBy,
   DetailedExportRow,
+  TestStatusData,
+  TestBatchUploadResult,
 } from "../types";
 
 const api = axios.create({ baseURL: "/api" });
@@ -83,4 +85,20 @@ export async function fetchDetailedExport(
     params: { date_from: dateFrom, date_to: dateTo, groupby },
   });
   return data.rows;
+}
+
+export async function uploadTestBatch(file: File): Promise<TestBatchUploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post("/testing/batch", form);
+  return data;
+}
+
+export async function fetchTestStatus(): Promise<TestStatusData> {
+  const { data } = await api.get("/testing/status");
+  return data;
+}
+
+export function testingExportUrl(): string {
+  return "/api/testing/export";
 }
