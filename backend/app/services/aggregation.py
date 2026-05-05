@@ -14,7 +14,7 @@ from typing import Optional, List, Literal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning
+from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning, DetailedExportRow
 
 GroupBy = Literal["day", "week", "month"]
 
@@ -379,6 +379,80 @@ def get_warnings(db: Session) -> List[ProductWarning]:
             asin=r.asin,
             last_archer_date=str(r.last_archer_date),
             days_missing=int(r.days_missing),
+        )
+        for r in rows
+    ]
+
+
+# ── Detailed export (all campaigns × date for a given date range) ─────────────
+
+def get_detailed_export(
+    db: Session,
+    date_from: date,
+    date_to: date,
+    groupby: str = "day",
+) -> List[DetailedExportRow]:
+    period_expr = _period_expr(groupby)
+
+    sql = text(
+        f"SELECT"
+        f"  g.campaign_id                                                         AS campaign_id,"
+        f"  g.campaign_name                                                       AS campaign_name,"
+        f"  g.asin                                                                AS asin,"
+        f"  {period_expr}                                                         AS period,"
+        "  SUM(g.impressions)                                                    AS impressions,"
+        "  SUM(g.clicks)                                                         AS clicks,"
+        "  SUM(g.spend_usd)                                                      AS spend_usd,"
+        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)                AS revenue_usd,"
+        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)                AS orders,"
+        "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)                AS units_sold,"
+        "  CASE WHEN SUM(g.impressions) > 0"
+        "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)          END AS ctr,"
+        "  CASE WHEN SUM(g.clicks) > 0"
+        "       THEN SUM(g.spend_usd) / SUM(g.clicks)                           END AS cpc,"
+        "  CASE WHEN SUM(g.clicks) > 0"
+        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        "            / SUM(g.clicks)                                             END AS rpc,"
+        "  CASE WHEN SUM(g.clicks) > 0"
+        "       THEN CAST(COALESCE(SUM(a.orders / COALESCE(cc.cnt, 1)), 0) AS FLOAT)"
+        "            / SUM(g.clicks)                                             END AS conv_rate,"
+        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        "    - SUM(g.spend_usd)                                                  AS profit,"
+        "  CASE WHEN SUM(g.spend_usd) > 0"
+        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        "            / SUM(g.spend_usd)                                          END AS roas,"
+        "  CASE WHEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0) > 0"
+        "       THEN SUM(g.spend_usd)"
+        "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)    END AS acos"
+        " FROM google_ads_campaign_day g"
+        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
+        + _CC_SUBQUERY +
+        " WHERE g.date BETWEEN :date_from AND :date_to"
+        " GROUP BY g.campaign_id, g.campaign_name, g.asin, period"
+        " ORDER BY g.campaign_name ASC, period ASC"
+    )
+
+    rows = db.execute(sql, {"date_from": date_from, "date_to": date_to}).fetchall()
+
+    return [
+        DetailedExportRow(
+            campaign_id=str(r.campaign_id),
+            campaign_name=str(r.campaign_name),
+            asin=r.asin,
+            period=str(r.period),
+            impressions=int(r.impressions or 0),
+            clicks=int(r.clicks or 0),
+            ctr=_safe_float(r.ctr),
+            spend_usd=float(r.spend_usd or 0),
+            cpc=_safe_float(r.cpc),
+            orders=int(r.orders or 0),
+            conv_rate=_safe_float(r.conv_rate),
+            revenue_usd=float(r.revenue_usd or 0),
+            rpc=_safe_float(r.rpc),
+            profit=float(r.profit or 0),
+            roas=_safe_float(r.roas),
+            acos=_safe_float(r.acos),
+            units_sold=int(r.units_sold or 0),
         )
         for r in rows
     ]

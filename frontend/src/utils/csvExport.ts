@@ -1,4 +1,4 @@
-import type { CampaignRow, DateRow, DateRange } from "../types";
+import type { CampaignRow, DateRange, DetailedExportRow } from "../types";
 
 interface Column {
   key: string;
@@ -28,7 +28,7 @@ const CAMPAIGN_COLUMNS: Column[] = [
   ...METRIC_COLUMNS,
 ];
 
-const DATE_COLUMNS: Column[] = [
+const DETAILED_COLUMNS: Column[] = [
   { key: "campaign_name", label: "Campaign" },
   { key: "asin",          label: "ASIN" },
   { key: "period",        label: "Period" },
@@ -74,22 +74,14 @@ export function exportAggregated(campaigns: CampaignRow[], dateRange: DateRange)
   );
 }
 
-export function exportDetailed(
-  campaigns: CampaignRow[],
-  dateData: Record<string, DateRow[]>,
-  dateRange: DateRange
-) {
-  const rows = campaigns.flatMap((c) =>
-    (dateData[c.campaign_id] ?? []).map((d) => ({
-      campaign_name: c.campaign_name,
-      asin: c.asin,
-      ...d,
-      ...addDerived(d.orders, d.spend_usd, d.revenue_usd),
-    }))
-  );
+export function exportDetailed(rows: DetailedExportRow[], dateRange: DateRange) {
+  const enriched = rows.map((r) => ({
+    ...r,
+    ...addDerived(r.orders, r.spend_usd, r.revenue_usd),
+  }));
   downloadCSV(
-    rows as unknown as Record<string, unknown>[],
-    DATE_COLUMNS,
+    enriched as unknown as Record<string, unknown>[],
+    DETAILED_COLUMNS,
     `ads-dashboard-detailed-${dateRange.from}-to-${dateRange.to}.csv`
   );
 }

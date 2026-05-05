@@ -146,3 +146,29 @@ class ProductWarning(BaseModel):
 
 class WarningsResponse(BaseModel):
     warnings: List[ProductWarning]
+
+
+# ── Detailed export ───────────────────────────────────────────────────────────
+
+class DetailedExportRow(BaseModel):
+    campaign_id: str
+    campaign_name: str
+    asin: Optional[str]
+    period: str
+    impressions: int
+    clicks: int
+    ctr: Optional[float]
+    spend_usd: float
+    cpc: Optional[float]
+    orders: int
+    conv_rate: Optional[float]
+    revenue_usd: float
+    rpc: Optional[float]
+    profit: float
+    roas: Optional[float]
+    acos: Optional[float]
+    units_sold: int
+
+
+class DetailedExportResponse(BaseModel):
+    rows: List[DetailedExportRow]

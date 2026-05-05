@@ -1,26 +1,35 @@
 import { useState } from "react";
 import { exportAggregated, exportDetailed } from "../../utils/csvExport";
-import type { CampaignRow, DateRow, DateRange } from "../../types";
+import { fetchDetailedExport } from "../../api/client";
+import type { CampaignRow, DateRange, GroupBy } from "../../types";
 
 type Format = "aggregated" | "detailed";
 
 interface Props {
   campaigns: CampaignRow[];
-  dateData: Record<string, DateRow[]>;
   dateRange: DateRange;
+  groupby: GroupBy;
   onClose: () => void;
 }
 
-export function ExportModal({ campaigns, dateData, dateRange, onClose }: Props) {
+export function ExportModal({ campaigns, dateRange, groupby, onClose }: Props) {
   const [format, setFormat] = useState<Format>("aggregated");
+  const [loading, setLoading] = useState(false);
 
-  function handleDownload() {
+  async function handleDownload() {
     if (format === "aggregated") {
       exportAggregated(campaigns, dateRange);
+      onClose();
     } else {
-      exportDetailed(campaigns, dateData, dateRange);
+      setLoading(true);
+      try {
+        const rows = await fetchDetailedExport(dateRange.from, dateRange.to, groupby);
+        exportDetailed(rows, dateRange);
+        onClose();
+      } finally {
+        setLoading(false);
+      }
     }
-    onClose();
   }
 
   return (
@@ -60,7 +69,7 @@ export function ExportModal({ campaigns, dateData, dateRange, onClose }: Props) 
             <div>
               <div className="text-sm font-medium text-gray-800">Detailed (campaign × date)</div>
               <div className="text-xs text-gray-500 mt-0.5">
-                All expanded date rows for every campaign
+                All campaigns broken down by {groupby} for the selected date range
               </div>
             </div>
           </label>
@@ -69,15 +78,17 @@ export function ExportModal({ campaigns, dateData, dateRange, onClose }: Props) 
         <div className="flex gap-2 mt-6">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            disabled={loading}
+            className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleDownload}
-            className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            disabled={loading}
+            className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            Download
+            {loading ? "Fetching…" : "Download"}
           </button>
         </div>
       </div>

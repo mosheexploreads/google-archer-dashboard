@@ -117,6 +117,28 @@ export interface ProductWarning {
   days_missing: number;
 }
 
+// ── Detailed export ───────────────────────────────────────────────────────────
+
+export interface DetailedExportRow {
+  campaign_id: string;
+  campaign_name: string;
+  asin: string | null;
+  period: string;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  spend_usd: number;
+  cpc: number | null;
+  orders: number;
+  conv_rate: number | null;
+  revenue_usd: number;
+  rpc: number | null;
+  profit: number;
+  roas: number | null;
+  acos: number | null;
+  units_sold: number;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export interface DateRange {

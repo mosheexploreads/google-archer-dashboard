@@ -6,6 +6,7 @@ import type {
   TimeseriesData,
   SyncStatus,
   GroupBy,
+  DetailedExportRow,
 } from "../types";
 
 const api = axios.create({ baseURL: "/api" });
@@ -71,4 +72,15 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
 
 export async function triggerSync(): Promise<void> {
   await api.post("/sync/trigger");
+}
+
+export async function fetchDetailedExport(
+  dateFrom: string,
+  dateTo: string,
+  groupby: GroupBy
+): Promise<DetailedExportRow[]> {
+  const { data } = await api.get("/dashboard/export/detailed", {
+    params: { date_from: dateFrom, date_to: dateTo, groupby },
+  });
+  return data.rows;
 }

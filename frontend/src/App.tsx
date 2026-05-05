@@ -91,8 +91,8 @@ export default function App() {
       {showExport && (
         <ExportModal
           campaigns={exportRows}
-          dateData={dateDataRef.current}
           dateRange={dateRange}
+          groupby={groupby}
           onClose={() => setShowExport(false)}
         />
       )}

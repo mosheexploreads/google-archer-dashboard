@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..schemas import (
     SummaryResponse, CampaignsResponse, CampaignDatesResponse,
-    TimeseriesResponse, WarningsResponse,
+    TimeseriesResponse, WarningsResponse, DetailedExportResponse,
 )
 from ..services.aggregation import (
     get_summary, get_campaigns, get_campaign_dates, get_timeseries, get_warnings,
+    get_detailed_export,
 )
 from ..utils.date_utils import yesterday, days_ago
 
@@ -86,3 +87,15 @@ def dashboard_timeseries(
 @router.get("/warnings", response_model=WarningsResponse)
 def dashboard_warnings(db: Session = Depends(get_db)):
     return WarningsResponse(warnings=get_warnings(db))
+
+
+@router.get("/export/detailed", response_model=DetailedExportResponse)
+def dashboard_export_detailed(
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    groupby: GroupBy = Query("day"),
+    db: Session = Depends(get_db),
+):
+    date_from, date_to = _default_dates(date_from, date_to)
+    rows = get_detailed_export(db, date_from, date_to, groupby)
+    return DetailedExportResponse(rows=rows)
