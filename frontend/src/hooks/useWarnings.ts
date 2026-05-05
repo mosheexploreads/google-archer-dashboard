@@ -12,9 +12,10 @@ export function useWarnings() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Disabled — feature parked for later
+  // useEffect(() => {
+  //   load();
+  // }, [load]);
 
   return { warnings, reload: load };
 }
