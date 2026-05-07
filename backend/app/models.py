@@ -61,6 +61,11 @@ class TestCampaign(Base):
     cut_threshold = Column(Integer, nullable=False) # 30 / 60 / 100 by AOV tier
     added_at = Column(DateTime, server_default=func.now())
 
+    # Tracking when a recommendation has been acted on. Cleared if a new
+    # recommendation type fires later (e.g., scale → mature).
+    last_applied_action = Column(String, nullable=True)   # "cut" | "scale_bid" | "mature_bid"
+    last_applied_at = Column(DateTime, nullable=True)
+
 
 class SyncLog(Base):
     """Tracks each sync attempt."""

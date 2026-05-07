@@ -102,3 +102,14 @@ export async function fetchTestStatus(): Promise<TestStatusData> {
 export function testingExportUrl(): string {
   return "/api/testing/export";
 }
+
+export async function markActionApplied(
+  campaignId: number,
+  action: "cut" | "scale_bid" | "mature_bid"
+): Promise<void> {
+  await api.post(`/testing/campaigns/${campaignId}/mark-applied`, { action });
+}
+
+export async function resetAppliedAction(campaignId: number): Promise<void> {
+  await api.post(`/testing/campaigns/${campaignId}/reset`);
+}

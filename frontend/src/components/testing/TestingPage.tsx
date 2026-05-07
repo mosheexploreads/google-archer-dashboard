@@ -86,6 +86,7 @@ export function TestingPage() {
       <TestingTable
         campaigns={data?.campaigns ?? []}
         loading={loading && !data}
+        onChange={load}
       />
     </div>
   );

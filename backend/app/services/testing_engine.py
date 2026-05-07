@@ -20,10 +20,10 @@ Rules (data-driven from 4,626-campaign historical analysis, Feb–May 2026):
 import csv
 import io
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, desc
 
 from ..models import TestBatch, TestCampaign, GoogleAdsCampaignDay, ArcherProductDay
 from ..schemas import TestCampaignStatus
@@ -39,14 +39,14 @@ def _cut_threshold(aov: float) -> int:
     return 100
 
 
-def _decide(
+def _compute_recommendation(
     tc: TestCampaign,
     clicks: int,
     orders: int,
     spend: float,
     revenue: float,
 ) -> Tuple[str, str, Optional[float]]:
-    """Return (action, reason, new_bid)."""
+    """Pure rule evaluation (ignoring applied/paused state). Returns (action, reason, new_bid)."""
     if clicks == 0:
         return "no_data", "No clicks recorded yet", None
 
@@ -74,10 +74,71 @@ def _decide(
     return "testing", f"{clicks} clicks, {orders} orders — still testing", None
 
 
+def _decide(
+    tc: TestCampaign,
+    clicks: int,
+    orders: int,
+    spend: float,
+    revenue: float,
+    campaign_status: Optional[str],
+) -> Tuple[str, str, Optional[float]]:
+    """
+    Apply business rules including already-applied state.
+
+    Returns "completed" if the campaign has already been actioned (paused in
+    Google Ads, or the user marked the recommendation as applied), so the same
+    recommendation isn't shown again.
+    """
+    # Auto-detected: already paused in Google Ads
+    if campaign_status and campaign_status.lower() != "enabled":
+        return "completed", f"Campaign {campaign_status.lower()} — testing complete", None
+
+    rec_action, rec_reason, rec_bid = _compute_recommendation(
+        tc, clicks, orders, spend, revenue
+    )
+
+    # User already marked the same recommendation as applied
+    if (
+        tc.last_applied_action
+        and tc.last_applied_action == rec_action
+        and rec_action in ("cut", "scale_bid", "mature_bid")
+    ):
+        when = (
+            tc.last_applied_at.strftime("%Y-%m-%d")
+            if tc.last_applied_at
+            else "earlier"
+        )
+        return "completed", f"'{rec_action}' applied {when}", None
+
+    return rec_action, rec_reason, rec_bid
+
+
+def _latest_status_map(db: Session, campaign_names: List[str]) -> Dict[str, Optional[str]]:
+    """For each campaign_name, return the campaign_status from the most recent date."""
+    if not campaign_names:
+        return {}
+    rows = (
+        db.query(
+            GoogleAdsCampaignDay.campaign_name,
+            GoogleAdsCampaignDay.campaign_status,
+            GoogleAdsCampaignDay.date,
+        )
+        .filter(GoogleAdsCampaignDay.campaign_name.in_(campaign_names))
+        .order_by(GoogleAdsCampaignDay.campaign_name, desc(GoogleAdsCampaignDay.date))
+        .all()
+    )
+    out: Dict[str, Optional[str]] = {}
+    for name, status, _date in rows:
+        if name not in out:  # first row wins (latest date due to desc sort)
+            out[name] = status
+    return out
+
+
 def evaluate_campaigns(db: Session) -> List[TestCampaignStatus]:
     """Evaluate all test campaigns against current GoogleAdsCampaignDay / ArcherProductDay data."""
     campaigns = db.query(TestCampaign).all()
     batches = {b.id: b for b in db.query(TestBatch).all()}
+    status_map = _latest_status_map(db, [tc.campaign_name for tc in campaigns])
 
     results = []
     for tc in campaigns:
@@ -109,7 +170,10 @@ def evaluate_campaigns(db: Session) -> List[TestCampaignStatus]:
         clicks = int(ads_row.clicks)
         spend = float(ads_row.spend)
 
-        action, reason, new_bid = _decide(tc, clicks, orders, spend, revenue)
+        action, reason, new_bid = _decide(
+            tc, clicks, orders, spend, revenue,
+            campaign_status=status_map.get(tc.campaign_name),
+        )
 
         rpc = round(revenue / clicks, 3) if clicks > 0 else None
         cpc = round(spend / clicks, 3) if clicks > 0 else None

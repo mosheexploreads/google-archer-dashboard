@@ -141,7 +141,13 @@ export interface DetailedExportRow {
 
 // ── Testing ───────────────────────────────────────────────────────────────────
 
-export type TestAction = "testing" | "cut" | "scale_bid" | "mature_bid" | "no_data";
+export type TestAction =
+  | "testing"
+  | "cut"
+  | "scale_bid"
+  | "mature_bid"
+  | "no_data"
+  | "completed";
 
 export interface TestCampaignStatus {
   id: number;

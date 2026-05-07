@@ -17,6 +17,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _ensure_test_campaign_columns(engine):
+    """Add columns introduced after initial schema (SQLite-only)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "test_campaign" not in insp.get_table_names():
+        return  # create_all will build it with the current schema
+    existing = {c["name"] for c in insp.get_columns("test_campaign")}
+    with engine.begin() as conn:
+        if "last_applied_action" not in existing:
+            conn.execute(text("ALTER TABLE test_campaign ADD COLUMN last_applied_action VARCHAR"))
+        if "last_applied_at" not in existing:
+            conn.execute(text("ALTER TABLE test_campaign ADD COLUMN last_applied_at DATETIME"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ────────────────────────────────────────────────────────────────
@@ -26,6 +40,9 @@ async def lifespan(app: FastAPI):
     from .database import engine, Base
     from . import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight column migrations for SQLite
+    _ensure_test_campaign_columns(engine)
 
     # Start 4-hour scheduler (Archer only — Google Ads data comes via CSV upload)
     start_scheduler()

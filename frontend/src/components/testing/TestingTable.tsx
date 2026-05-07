@@ -1,32 +1,47 @@
+import { markActionApplied, resetAppliedAction } from "../../api/client";
 import type { TestCampaignStatus, TestAction } from "../../types";
 
 interface Props {
   campaigns: TestCampaignStatus[];
   loading: boolean;
+  onChange: () => void;
 }
 
 const ACTION_STYLES: Record<TestAction, string> = {
-  cut:       "bg-red-100 text-red-700",
-  scale_bid: "bg-blue-100 text-blue-700",
-  mature_bid:"bg-purple-100 text-purple-700",
-  testing:   "bg-yellow-50 text-yellow-700",
-  no_data:   "bg-gray-100 text-gray-500",
+  cut:        "bg-red-100 text-red-700",
+  scale_bid:  "bg-blue-100 text-blue-700",
+  mature_bid: "bg-purple-100 text-purple-700",
+  testing:    "bg-yellow-50 text-yellow-700",
+  no_data:    "bg-gray-100 text-gray-500",
+  completed:  "bg-green-100 text-green-700",
 };
 
 const ACTION_LABELS: Record<TestAction, string> = {
-  cut:       "Cut",
-  scale_bid: "Scale bid",
-  mature_bid:"Mature bid",
-  testing:   "Testing",
-  no_data:   "No data",
+  cut:        "Cut",
+  scale_bid:  "Scale bid",
+  mature_bid: "Mature bid",
+  testing:    "Testing",
+  no_data:    "No data",
+  completed:  "Completed",
 };
+
+const ACTIONABLE = new Set<TestAction>(["cut", "scale_bid", "mature_bid"]);
 
 function fmt(n: number | null, prefix = "", decimals = 2): string {
   if (n === null || n === undefined) return "—";
   return `${prefix}${n.toFixed(decimals)}`;
 }
 
-export function TestingTable({ campaigns, loading }: Props) {
+export function TestingTable({ campaigns, loading, onChange }: Props) {
+  async function handleMarkApplied(c: TestCampaignStatus) {
+    if (!ACTIONABLE.has(c.action)) return;
+    await markActionApplied(c.id, c.action as "cut" | "scale_bid" | "mature_bid");
+    onChange();
+  }
+  async function handleReset(id: number) {
+    await resetAppliedAction(id);
+    onChange();
+  }
   if (loading) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
@@ -43,8 +58,8 @@ export function TestingTable({ campaigns, loading }: Props) {
     );
   }
 
-  // Sort: action items first (cut/scale_bid/mature_bid), then testing, then no_data
-  const order: TestAction[] = ["cut", "scale_bid", "mature_bid", "testing", "no_data"];
+  // Sort: action items first, then testing, no_data, completed last
+  const order: TestAction[] = ["cut", "scale_bid", "mature_bid", "testing", "no_data", "completed"];
   const sorted = [...campaigns].sort(
     (a, b) => order.indexOf(a.action) - order.indexOf(b.action)
   );
@@ -67,6 +82,7 @@ export function TestingTable({ campaigns, loading }: Props) {
               <th className="px-4 py-3 text-center font-medium text-gray-600">Action</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">New Bid</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Reason</th>
+              <th className="px-4 py-3 text-center font-medium text-gray-600"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -109,6 +125,23 @@ export function TestingTable({ campaigns, loading }: Props) {
                 </td>
                 <td className="px-4 py-2.5 text-gray-500 text-xs max-w-xs">
                   {c.action_reason}
+                </td>
+                <td className="px-4 py-2.5 text-center">
+                  {ACTIONABLE.has(c.action) ? (
+                    <button
+                      onClick={() => handleMarkApplied(c)}
+                      className="text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-50 text-gray-700 whitespace-nowrap"
+                    >
+                      Mark applied
+                    </button>
+                  ) : c.action === "completed" && c.action_reason.includes("applied") ? (
+                    <button
+                      onClick={() => handleReset(c.id)}
+                      className="text-xs px-2 py-1 rounded text-gray-400 hover:text-gray-600 whitespace-nowrap"
+                    >
+                      Undo
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}

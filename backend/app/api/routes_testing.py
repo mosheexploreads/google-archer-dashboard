@@ -7,9 +7,11 @@ GET  /api/testing/export  — download Google Ads Editor bulk CSV
 """
 import io
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from ..database import SessionLocal
 from ..models import TestBatch, TestCampaign
@@ -94,6 +96,55 @@ def get_test_status():
             total=len(campaigns),
             needs_action=needs_action,
         )
+    finally:
+        db.close()
+
+
+class MarkAppliedRequest(BaseModel):
+    action: str  # "cut" | "scale_bid" | "mature_bid"
+
+
+class MarkAppliedResponse(BaseModel):
+    id: int
+    last_applied_action: str
+    last_applied_at: datetime
+
+
+@router.post("/campaigns/{campaign_id}/mark-applied", response_model=MarkAppliedResponse)
+def mark_action_applied(campaign_id: int, body: MarkAppliedRequest):
+    """Mark a recommendation as applied so it stops showing in the action list."""
+    if body.action not in {"cut", "scale_bid", "mature_bid"}:
+        raise HTTPException(status_code=400, detail=f"Invalid action: {body.action}")
+
+    db = SessionLocal()
+    try:
+        tc = db.query(TestCampaign).filter(TestCampaign.id == campaign_id).first()
+        if tc is None:
+            raise HTTPException(status_code=404, detail="Test campaign not found")
+        tc.last_applied_action = body.action
+        tc.last_applied_at = datetime.utcnow()
+        db.commit()
+        return MarkAppliedResponse(
+            id=tc.id,
+            last_applied_action=tc.last_applied_action,
+            last_applied_at=tc.last_applied_at,
+        )
+    finally:
+        db.close()
+
+
+@router.post("/campaigns/{campaign_id}/reset")
+def reset_applied(campaign_id: int):
+    """Clear the applied marker so the recommendation reappears."""
+    db = SessionLocal()
+    try:
+        tc = db.query(TestCampaign).filter(TestCampaign.id == campaign_id).first()
+        if tc is None:
+            raise HTTPException(status_code=404, detail="Test campaign not found")
+        tc.last_applied_action = None
+        tc.last_applied_at = None
+        db.commit()
+        return {"id": tc.id, "reset": True}
     finally:
         db.close()
 
