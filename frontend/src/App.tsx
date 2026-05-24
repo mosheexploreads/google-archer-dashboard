@@ -65,7 +65,7 @@ export default function App() {
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
       {/* Tab navigation */}
       <div className="flex gap-1 border-b border-gray-200 -mb-2">
-        {(["dashboard", "testing", "catalog", "campaigns"] as Tab[]).map((t) => (
+        {(["dashboard", "testing"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
