@@ -158,14 +158,14 @@ class ArcherClient:
             token = self._get_token(client)
             headers = {"Authorization": f"Bearer {token}"}
 
-            page = 1
+            skip = 0
             limit = 100
             while True:
                 resp = client.get(
                     f"{self._base_url}/getproducts",
                     params={
                         "country_code": country_code,
-                        "page":  page,
+                        "skip":  skip,
                         "limit": limit,
                     },
                     headers=headers,
@@ -178,7 +178,7 @@ class ArcherClient:
                     rows = data
                 else:
                     rows = next(
-                        (data[k] for k in ("data", "results", "rows", "items", "products")
+                        (data[k] for k in ("product_catalog", "data", "results", "rows", "items", "products")
                          if k in data and isinstance(data[k], list)),
                         []
                     )
@@ -186,32 +186,33 @@ class ArcherClient:
                 if not rows:
                     break
 
-                if page == 1:
+                if skip == 0:
                     logger.info(
-                        "Archer /getproducts [%s] page 1: %d rows, fields: %s",
-                        country_code, len(rows), list(rows[0].keys()) if rows else []
+                        "Archer /getproducts [%s] first batch: %d rows, total=%s, fields: %s",
+                        country_code, len(rows), data.get("total_count", "?"),
+                        list(rows[0].keys()) if rows else []
                     )
 
                 all_rows.extend(rows)
                 if len(rows) < limit:
                     break
-                page += 1
+                skip += len(rows)
 
-        logger.info("Archer: fetched %d products for %s (%d pages)", len(all_rows), country_code, page)
+        logger.info("Archer: fetched %d products for %s", len(all_rows), country_code)
 
         normalised = []
         for row in all_rows:
-            asin = _resolve_field(row, "asin")
+            asin = row.get("ASIN") or row.get("asin") or row.get("product_asin")
             if not asin:
                 continue
             normalised.append({
                 "asin":          str(asin).upper(),
-                "product_name":  _resolve_field(row, "product_name"),
+                "product_name":  row.get("product_name") or row.get("title") or row.get("name"),
                 "price":         _safe_num(row.get("price") or row.get("product_price")),
-                "rating":        _safe_num(row.get("rating") or row.get("average_rating")),
-                "review_count":  _safe_int(row.get("review_count") or row.get("reviews") or row.get("total_reviews")),
-                "image_url":     row.get("image_url") or row.get("image") or row.get("thumbnail"),
-                "availability":  row.get("availability") or row.get("status"),
+                "rating":        _safe_num(row.get("avg_rating") or row.get("average_rating") or row.get("rating")),
+                "review_count":  _safe_int(row.get("total_reviews") or row.get("review_count") or row.get("reviews")),
+                "image_url":     row.get("image_encoded_string") or row.get("image_url") or row.get("image") or row.get("thumbnail"),
+                "availability":  row.get("product_status") or row.get("availability") or row.get("status"),
                 "affiliate_url": row.get("affiliate_url") or row.get("url") or row.get("link"),
             })
         return normalised
