@@ -75,6 +75,28 @@ def trigger_catalog_sync():
     return TriggerResponse(message="Catalog sync started in background.")
 
 
+@router.get("/sync/log")
+def catalog_sync_log(db: Session = Depends(get_db)):
+    """Return last 10 SyncLog entries for archer_catalog — debug helper."""
+    rows = (
+        db.query(SyncLog)
+        .filter(SyncLog.source == "archer_catalog")
+        .order_by(SyncLog.started_at.desc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "started_at": str(r.started_at),
+            "finished_at": str(r.finished_at),
+            "status": r.status,
+            "records_upserted": r.records_upserted,
+            "error_message": r.error_message,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/sync/status", response_model=CatalogSyncStatusResponse)
 def catalog_sync_status(db: Session = Depends(get_db)):
     """Return last sync time and product count per market."""
