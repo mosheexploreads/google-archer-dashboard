@@ -1,20 +1,25 @@
 const STATUS_OPTIONS = ["All", "Enabled", "Paused", "Removed"] as const;
 type StatusOption = (typeof STATUS_OPTIONS)[number];
 
+const COUNTRY_OPTIONS = ["All", "US", "UK", "DE", "JP", "CA"] as const;
+type CountryOption = (typeof COUNTRY_OPTIONS)[number];
+
 interface Props {
   campaignFilter: string;
   asinFilter: string;
   statusFilter: StatusOption;
+  countryFilter: CountryOption;
   ageMin: number | "";
   ageMax: number | "";
   onCampaignChange: (v: string) => void;
   onAsinChange: (v: string) => void;
   onStatusChange: (v: StatusOption) => void;
+  onCountryChange: (v: CountryOption) => void;
   onAgeMinChange: (v: number | "") => void;
   onAgeMaxChange: (v: number | "") => void;
 }
 
-export type { StatusOption };
+export type { StatusOption, CountryOption };
 
 function parseDay(val: string): number | "" {
   return val === "" ? "" : Math.max(0, parseInt(val, 10) || 0);
@@ -24,11 +29,13 @@ export function TableFilters({
   campaignFilter,
   asinFilter,
   statusFilter,
+  countryFilter,
   ageMin,
   ageMax,
   onCampaignChange,
   onAsinChange,
   onStatusChange,
+  onCountryChange,
   onAgeMinChange,
   onAgeMaxChange,
 }: Props) {
@@ -58,6 +65,22 @@ export function TableFilters({
             onClick={() => onStatusChange(opt)}
             className={`px-3 py-1.5 transition-colors ${
               statusFilter === opt
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-600 hover:bg-gray-50"
+            } ${opt !== "All" ? "border-l border-gray-300" : ""}`}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+      {/* Country filter */}
+      <div className="flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium">
+        {COUNTRY_OPTIONS.map((opt) => (
+          <button
+            key={opt}
+            onClick={() => onCountryChange(opt)}
+            className={`px-3 py-1.5 transition-colors ${
+              countryFilter === opt
                 ? "bg-blue-600 text-white"
                 : "bg-white text-gray-600 hover:bg-gray-50"
             } ${opt !== "All" ? "border-l border-gray-300" : ""}`}

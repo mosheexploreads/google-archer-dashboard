@@ -66,9 +66,10 @@ class ArcherClient:
         logger.info("Archer: token obtained successfully")
         return token
 
-    def fetch_earnings(self, date_from: date, date_to: date) -> List[Dict[str, Any]]:
+    def fetch_earnings(self, date_from: date, date_to: date, geo: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Fetch per-product daily earnings for date_from..date_to.
+        Pass geo="EU" or geo="FE" for non-US markets; omit for US.
         Handles pagination automatically (API max 100 rows/page).
         Returns list of normalised dicts with keys:
           asin, product_name, revenue_usd, orders, units_sold, date
@@ -84,14 +85,17 @@ class ArcherClient:
             page = 1
             limit = 100
             while True:
+                params: Dict[str, Any] = {
+                    "start_date": start_str,
+                    "end_date":   end_str,
+                    "page":       page,
+                    "limit":      limit,
+                }
+                if geo:
+                    params["geo"] = geo
                 resp = client.get(
                     f"{self._base_url}/product_reports_all",
-                    params={
-                        "start_date": start_str,
-                        "end_date":   end_str,
-                        "page":       page,
-                        "limit":      limit,
-                    },
+                    params=params,
                     headers=headers,
                     timeout=60,
                 )
@@ -141,3 +145,112 @@ class ArcherClient:
                 "date":         _resolve_field(row, "date"),
             })
         return normalised
+
+    def fetch_products(self, country_code: str) -> List[Dict[str, Any]]:
+        """
+        Fetch product catalog for a given country code via GET /getproducts.
+        Returns normalised dicts with keys:
+          asin, product_name, price, rating, review_count, image_url, availability, affiliate_url
+        """
+        all_rows: List[Dict] = []
+
+        with httpx.Client() as client:
+            token = self._get_token(client)
+            headers = {"Authorization": f"Bearer {token}"}
+
+            page = 1
+            limit = 100
+            while True:
+                resp = client.get(
+                    f"{self._base_url}/getproducts",
+                    params={
+                        "country_code": country_code,
+                        "page":  page,
+                        "limit": limit,
+                    },
+                    headers=headers,
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                if isinstance(data, list):
+                    rows = data
+                else:
+                    rows = next(
+                        (data[k] for k in ("data", "results", "rows", "items", "products")
+                         if k in data and isinstance(data[k], list)),
+                        []
+                    )
+
+                if not rows:
+                    break
+
+                if page == 1:
+                    logger.info(
+                        "Archer /getproducts [%s] page 1: %d rows, fields: %s",
+                        country_code, len(rows), list(rows[0].keys()) if rows else []
+                    )
+
+                all_rows.extend(rows)
+                if len(rows) < limit:
+                    break
+                page += 1
+
+        logger.info("Archer: fetched %d products for %s (%d pages)", len(all_rows), country_code, page)
+
+        normalised = []
+        for row in all_rows:
+            asin = _resolve_field(row, "asin")
+            if not asin:
+                continue
+            normalised.append({
+                "asin":          str(asin).upper(),
+                "product_name":  _resolve_field(row, "product_name"),
+                "price":         _safe_num(row.get("price") or row.get("product_price")),
+                "rating":        _safe_num(row.get("rating") or row.get("average_rating")),
+                "review_count":  _safe_int(row.get("review_count") or row.get("reviews") or row.get("total_reviews")),
+                "image_url":     row.get("image_url") or row.get("image") or row.get("thumbnail"),
+                "availability":  row.get("availability") or row.get("status"),
+                "affiliate_url": row.get("affiliate_url") or row.get("url") or row.get("link"),
+            })
+        return normalised
+
+    def generate_attribution_link(self, asin: str, link_name: str, geo: str) -> Optional[str]:
+        """
+        Call POST /generate_attribution_link and return the attribution URL.
+        Returns None if the API call fails (logged as warning, not raised).
+        """
+        with httpx.Client() as client:
+            token = self._get_token(client)
+            resp = client.post(
+                f"{self._base_url}/generate_attribution_link",
+                json={"asin": asin, "link_name": link_name, "geo": geo},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            url = (
+                data.get("attribution_url")
+                or data.get("url")
+                or data.get("link")
+                or data.get("tracking_url")
+            )
+            if not url:
+                logger.warning("generate_attribution_link: no URL in response for %s/%s: %s", asin, geo, data)
+            return url
+
+
+def _safe_num(v) -> Optional[float]:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(v) -> Optional[int]:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None

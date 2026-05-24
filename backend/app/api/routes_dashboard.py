@@ -31,10 +31,11 @@ def _default_dates(date_from: Optional[date], date_to: Optional[date]):
 def dashboard_summary(
     date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
-    return get_summary(db, date_from, date_to)
+    return get_summary(db, date_from, date_to, country_code=country_code)
 
 
 @router.get("/campaigns", response_model=CampaignsResponse)
@@ -46,6 +47,7 @@ def dashboard_campaigns(
     asin: str = Query("", description="Filter by ASIN (partial match)"),
     campaign: str = Query("", description="Filter by campaign name (partial match)"),
     status: str = Query("", description="Filter by campaign status (Enabled/Paused/Removed)"),
+    country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -53,7 +55,7 @@ def dashboard_campaigns(
         db, date_from, date_to,
         sort_by=sort_by, sort_dir=sort_dir,
         asin_filter=asin, campaign_filter=campaign,
-        status_filter=status,
+        status_filter=status, country_code=country_code,
     )
     return CampaignsResponse(rows=rows, total=len(rows))
 

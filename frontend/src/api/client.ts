@@ -9,16 +9,21 @@ import type {
   DetailedExportRow,
   TestStatusData,
   TestBatchUploadResult,
+  ProductCatalogData,
+  CatalogSyncStatus,
+  CampaignDraft,
+  CampaignDraftsData,
 } from "../types";
 
 const api = axios.create({ baseURL: "/api" });
 
 export async function fetchSummary(
   dateFrom: string,
-  dateTo: string
+  dateTo: string,
+  countryCode = ""
 ): Promise<SummaryData> {
   const { data } = await api.get("/dashboard/summary", {
-    params: { date_from: dateFrom, date_to: dateTo },
+    params: { date_from: dateFrom, date_to: dateTo, country_code: countryCode },
   });
   return data;
 }
@@ -29,7 +34,9 @@ export async function fetchCampaigns(
   sortBy = "spend_usd",
   sortDir = "desc",
   asin = "",
-  campaign = ""
+  campaign = "",
+  status = "",
+  countryCode = ""
 ): Promise<CampaignsData> {
   const { data } = await api.get("/dashboard/campaigns", {
     params: {
@@ -39,6 +46,8 @@ export async function fetchCampaigns(
       sort_dir: sortDir,
       asin,
       campaign,
+      status,
+      country_code: countryCode,
     },
   });
   return data;
@@ -112,4 +121,53 @@ export async function markActionApplied(
 
 export async function resetAppliedAction(campaignId: number): Promise<void> {
   await api.post(`/testing/campaigns/${campaignId}/reset`);
+}
+
+// ── Catalog ───────────────────────────────────────────────────────────────────
+
+export async function fetchCatalogProducts(
+  countryCode = "",
+  search = "",
+  page = 1
+): Promise<ProductCatalogData> {
+  const { data } = await api.get("/catalog/products", {
+    params: { country_code: countryCode, search, page },
+  });
+  return data;
+}
+
+export async function triggerCatalogSync(): Promise<void> {
+  await api.post("/catalog/sync");
+}
+
+export async function fetchCatalogSyncStatus(): Promise<CatalogSyncStatus[]> {
+  const { data } = await api.get("/catalog/sync/status");
+  return data.markets;
+}
+
+// ── Campaign Drafts ───────────────────────────────────────────────────────────
+
+export async function generateCampaignDrafts(
+  items: { asin: string; country_code: string }[]
+): Promise<CampaignDraft[]> {
+  const { data } = await api.post("/campaigns/drafts", { items });
+  return data.drafts;
+}
+
+export async function fetchCampaignDrafts(
+  countryCode = "",
+  status = ""
+): Promise<CampaignDraftsData> {
+  const { data } = await api.get("/campaigns/drafts", {
+    params: { country_code: countryCode, status },
+  });
+  return data;
+}
+
+export async function markDraftExported(draftId: number): Promise<void> {
+  await api.post(`/campaigns/drafts/${draftId}/mark-exported`);
+}
+
+export function campaignExportUrl(): string {
+  return "/api/campaigns/export";
 }

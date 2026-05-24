@@ -40,6 +40,7 @@ export interface CampaignRow {
   campaign_id: string;
   campaign_name: string;
   asin: string | null;
+  country_code: string | null;
   product_name: string | null;
   impressions: number;
   clicks: number;
@@ -186,4 +187,49 @@ export interface TestBatchUploadResult {
 export interface DateRange {
   from: string; // YYYY-MM-DD
   to: string;   // YYYY-MM-DD
+}
+
+// ── Product Catalog ───────────────────────────────────────────────────────────
+
+export interface ProductCatalogItem {
+  asin: string;
+  country_code: string;
+  product_name: string | null;
+  price: number | null;
+  rating: number | null;
+  review_count: number | null;
+  image_url: string | null;
+  availability: string | null;
+  affiliate_url: string | null;
+  last_synced_at: string | null;
+}
+
+export interface ProductCatalogData {
+  items: ProductCatalogItem[];
+  total: number;
+}
+
+export interface CatalogSyncStatus {
+  country_code: string;
+  last_synced_at: string | null;
+  records: number;
+}
+
+// ── Campaign Drafts ───────────────────────────────────────────────────────────
+
+export interface CampaignDraft {
+  id: number;
+  asin: string;
+  country_code: string;
+  product_name: string | null;
+  attribution_link: string | null;
+  campaign_name: string;
+  suggested_bid: number;
+  status: "draft" | "exported";
+  created_at: string | null;
+}
+
+export interface CampaignDraftsData {
+  drafts: CampaignDraft[];
+  total: number;
 }

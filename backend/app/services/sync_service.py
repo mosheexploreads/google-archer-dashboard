@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from ..database import SessionLocal
-from ..models import GoogleAdsCampaignDay, ArcherProductDay, SyncLog
+from ..models import GoogleAdsCampaignDay, ArcherProductDay, ProductCatalog, SyncLog
 from ..utils.asin_extractor import extract_asin
+from ..utils.geo_utils import ARCHER_GEOS, country_to_geo
 from ..utils.date_utils import yesterday, days_ago
 from .google_ads_client import GoogleAdsClient
 from .archer_client import ArcherClient
@@ -125,61 +126,64 @@ def _parse_archer_date(raw) -> Optional[date]:
 
 
 def sync_archer() -> int:
-    """Fetch D-30 through D-1 from Archer and upsert. Safe to re-run."""
+    """Fetch D-30 through D-1 from Archer for all geos and upsert. Safe to re-run."""
     date_from = days_ago(30)
     date_to   = days_ago(1)
     started   = datetime.utcnow()
     db        = SessionLocal()
+    total_count = 0
     try:
         client = ArcherClient()
-        rows   = client.fetch_earnings(date_from, date_to)
 
-        # Aggregate by (asin, date) before upserting — the API returns one row
-        # per link/campaign, so the same ASIN can appear multiple times on the
-        # same date. Without aggregation the upsert would silently overwrite and
-        # lose revenue from all but the last row.
-        aggregated: dict[tuple, dict] = {}
-        skipped = 0
-        for row in rows:
-            parsed_date = _parse_archer_date(row.get("date"))
-            if not row.get("asin") or parsed_date is None:
-                skipped += 1
-                continue
-            key = (row["asin"].upper(), parsed_date)
-            if key not in aggregated:
-                aggregated[key] = {
-                    "asin":         row["asin"].upper(),
-                    "date":         parsed_date,
-                    "product_name": row.get("product_name"),
-                    "revenue_usd":  row["revenue_usd"],
-                    "orders":       row["orders"],
-                    "units_sold":   row["units_sold"],
-                }
-            else:
-                aggregated[key]["revenue_usd"] += row["revenue_usd"]
-                aggregated[key]["orders"]      += row["orders"]
-                aggregated[key]["units_sold"]  += row["units_sold"]
+        for geo in ARCHER_GEOS:
+            rows = client.fetch_earnings(date_from, date_to, geo=None if geo == "US" else geo)
 
-        count = 0
-        for agg in aggregated.values():
-            stmt = sqlite_insert(ArcherProductDay).values(**agg)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["asin", "date"],
-                set_={
-                    "product_name": stmt.excluded.product_name,
-                    "revenue_usd":  stmt.excluded.revenue_usd,
-                    "orders":       stmt.excluded.orders,
-                    "units_sold":   stmt.excluded.units_sold,
-                    "updated_at":   datetime.utcnow(),
-                },
-            )
-            db.execute(stmt)
-            count += 1
+            # Aggregate by (asin, date, geo) — API may return one row per link.
+            aggregated: dict[tuple, dict] = {}
+            skipped = 0
+            for row in rows:
+                parsed_date = _parse_archer_date(row.get("date"))
+                if not row.get("asin") or parsed_date is None:
+                    skipped += 1
+                    continue
+                key = (row["asin"].upper(), parsed_date, geo)
+                if key not in aggregated:
+                    aggregated[key] = {
+                        "asin":         row["asin"].upper(),
+                        "date":         parsed_date,
+                        "geo":          geo,
+                        "product_name": row.get("product_name"),
+                        "revenue_usd":  row["revenue_usd"],
+                        "orders":       row["orders"],
+                        "units_sold":   row["units_sold"],
+                    }
+                else:
+                    aggregated[key]["revenue_usd"] += row["revenue_usd"]
+                    aggregated[key]["orders"]      += row["orders"]
+                    aggregated[key]["units_sold"]  += row["units_sold"]
 
-        db.commit()
-        _log_sync(db, "archer", "success", started, records=count)
-        logger.info("Archer: upserted %d rows, skipped %d for %s–%s.", count, skipped, date_from, date_to)
-        return count
+            count = 0
+            for agg in aggregated.values():
+                stmt = sqlite_insert(ArcherProductDay).values(**agg)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["asin", "date", "geo"],
+                    set_={
+                        "product_name": stmt.excluded.product_name,
+                        "revenue_usd":  stmt.excluded.revenue_usd,
+                        "orders":       stmt.excluded.orders,
+                        "units_sold":   stmt.excluded.units_sold,
+                        "updated_at":   datetime.utcnow(),
+                    },
+                )
+                db.execute(stmt)
+                count += 1
+
+            db.commit()
+            logger.info("Archer [%s]: upserted %d rows, skipped %d for %s–%s.", geo, count, skipped, date_from, date_to)
+            total_count += count
+
+        _log_sync(db, "archer", "success", started, records=total_count)
+        return total_count
 
     except Exception as exc:
         db.rollback()
@@ -190,8 +194,65 @@ def sync_archer() -> int:
         db.close()
 
 
+def sync_product_catalog() -> int:
+    """Fetch product catalog from Archer for all configured markets and upsert."""
+    from ..config import get_settings
+    settings = get_settings()
+    markets = [m.strip().upper() for m in settings.archer_markets.split(",") if m.strip()]
+    started = datetime.utcnow()
+    db = SessionLocal()
+    total_count = 0
+    try:
+        client = ArcherClient()
+        for country_code in markets:
+            products = client.fetch_products(country_code)
+            count = 0
+            for p in products:
+                stmt = sqlite_insert(ProductCatalog).values(
+                    asin=p["asin"],
+                    country_code=country_code,
+                    product_name=p.get("product_name"),
+                    price=p.get("price"),
+                    rating=p.get("rating"),
+                    review_count=p.get("review_count"),
+                    image_url=p.get("image_url"),
+                    availability=p.get("availability"),
+                    affiliate_url=p.get("affiliate_url"),
+                    last_synced_at=datetime.utcnow(),
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["asin", "country_code"],
+                    set_={
+                        "product_name":  stmt.excluded.product_name,
+                        "price":         stmt.excluded.price,
+                        "rating":        stmt.excluded.rating,
+                        "review_count":  stmt.excluded.review_count,
+                        "image_url":     stmt.excluded.image_url,
+                        "availability":  stmt.excluded.availability,
+                        "affiliate_url": stmt.excluded.affiliate_url,
+                        "last_synced_at": stmt.excluded.last_synced_at,
+                    },
+                )
+                db.execute(stmt)
+                count += 1
+            db.commit()
+            logger.info("Archer catalog [%s]: upserted %d products.", country_code, count)
+            total_count += count
+
+        _log_sync(db, "archer_catalog", "success", started, records=total_count)
+        return total_count
+
+    except Exception as exc:
+        db.rollback()
+        _log_sync(db, "archer_catalog", "error", started, error=str(exc))
+        logger.error("Archer catalog sync failed: %s", exc, exc_info=True)
+        raise
+    finally:
+        db.close()
+
+
 def run_full_sync():
-    """Run both syncs. Called by scheduler and manual trigger."""
+    """Run all syncs. Called by scheduler and manual trigger."""
     global _is_running
     if _is_running:
         logger.warning("Sync already in progress, skipping.")
@@ -200,9 +261,13 @@ def run_full_sync():
     try:
         sync_google_ads()
     except Exception:
-        pass  # logged inside; don't abort Archer sync
+        pass
     try:
         sync_archer()
+    except Exception:
+        pass
+    try:
+        sync_product_catalog()
     except Exception:
         pass
     finally:

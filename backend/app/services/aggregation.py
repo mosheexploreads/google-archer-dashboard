@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning, DetailedExportRow
+from ..utils.geo_utils import country_to_geo
 
 GroupBy = Literal["day", "week", "month"]
 
@@ -47,6 +48,26 @@ _CC_SUBQUERY = (
     " ) cc ON g.asin = cc.asin AND g.date = cc.date"
 )
 
+# When filtering by country_code, restrict the Archer JOIN to the matching geo.
+# Without a filter we union all geos so totals aggregate across markets.
+def _archer_join(country_code: str = "") -> str:
+    if country_code:
+        geo = country_to_geo(country_code)
+        return f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = '{geo}'"
+    # No filter: sum across all geos (one row per asin+date+geo, so we need to
+    # aggregate — use a subquery that collapses geos first.
+    return (
+        " LEFT JOIN ("
+        "   SELECT asin, date,"
+        "          SUM(revenue_usd) AS revenue_usd,"
+        "          SUM(orders)      AS orders,"
+        "          SUM(units_sold)  AS units_sold,"
+        "          MAX(product_name) AS product_name"
+        "   FROM archer_product_day"
+        "   GROUP BY asin, date"
+        " ) a ON g.asin = a.asin AND a.date = g.date"
+    )
+
 _SORT_WHITELIST = {
     "campaign_name", "asin", "spend_usd", "revenue_usd",
     "roas", "rpc", "acos", "orders", "units_sold",
@@ -55,7 +76,8 @@ _SORT_WHITELIST = {
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
-def get_summary(db: Session, date_from: date, date_to: date) -> SummaryResponse:
+def get_summary(db: Session, date_from: date, date_to: date, country_code: str = "") -> SummaryResponse:
+    country_filter = "AND g.country_code = :country_code" if country_code else ""
     sql = text(
         "SELECT"
         "  COALESCE(SUM(g.spend_usd), 0)                                  AS spend_usd,"
@@ -65,11 +87,14 @@ def get_summary(db: Session, date_from: date, date_to: date) -> SummaryResponse:
         "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)          AS orders,"
         "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)          AS units_sold"
         " FROM google_ads_campaign_day g"
-        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        + _CC_SUBQUERY +
-        " WHERE g.date BETWEEN :date_from AND :date_to"
+        + _archer_join(country_code)
+        + _CC_SUBQUERY
+        + f" WHERE g.date BETWEEN :date_from AND :date_to {country_filter}"
     )
-    row = db.execute(sql, {"date_from": date_from, "date_to": date_to}).fetchone()
+    params: dict = {"date_from": date_from, "date_to": date_to}
+    if country_code:
+        params["country_code"] = country_code
+    row = db.execute(sql, params).fetchone()
     spend = float(row.spend_usd)
     revenue = float(row.revenue_usd)
     clicks = int(row.clicks)
@@ -99,16 +124,19 @@ def get_campaigns(
     asin_filter: str = "",
     campaign_filter: str = "",
     status_filter: str = "",
+    country_code: str = "",
 ) -> List[CampaignRow]:
     if sort_by not in _SORT_WHITELIST:
         sort_by = "spend_usd"
     dir_sql = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
+    country_filter = "AND g.country_code = :country_code" if country_code else ""
     sql = text(
         "SELECT"
         "  g.campaign_id,"
         "  g.campaign_name,"
         "  g.asin,"
+        "  COALESCE(g.country_code, 'US')                                       AS country_code,"
         "  MAX(a.product_name)                                                  AS product_name,"
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
@@ -137,9 +165,9 @@ def get_campaigns(
         "  ls.campaign_status                                                   AS current_status,"
         "  fs.first_seen                                                        AS first_seen"
         " FROM google_ads_campaign_day g"
-        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        + _CC_SUBQUERY +
-        " LEFT JOIN ("
+        + _archer_join(country_code)
+        + _CC_SUBQUERY
+        + " LEFT JOIN ("
         "   SELECT campaign_id, MIN(date) AS first_seen"
         "   FROM google_ads_campaign_day"
         "   GROUP BY campaign_id"
@@ -159,23 +187,28 @@ def get_campaigns(
         "   AND (:asin     = '' OR g.asin LIKE '%' || :asin || '%')"
         "   AND (:campaign = '' OR g.campaign_name LIKE '%' || :campaign || '%')"
         "   AND (:status   = '' OR COALESCE(ls.campaign_status, '') = :status)"
+        f"  {country_filter}"
         " GROUP BY g.campaign_id, g.asin"
         f" ORDER BY {sort_by} {dir_sql}"
     )
 
-    rows = db.execute(sql, {
+    params: dict = {
         "date_from": date_from,
         "date_to": date_to,
         "asin": asin_filter,
         "campaign": campaign_filter,
         "status": status_filter,
-    }).fetchall()
+    }
+    if country_code:
+        params["country_code"] = country_code
+    rows = db.execute(sql, params).fetchall()
 
     return [
         CampaignRow(
             campaign_id=r.campaign_id,
             campaign_name=r.campaign_name,
             asin=r.asin,
+            country_code=r.country_code,
             product_name=r.product_name,
             impressions=int(r.impressions or 0),
             clicks=int(r.clicks or 0),
@@ -236,9 +269,9 @@ def get_campaign_dates(
         "       THEN SUM(g.spend_usd)"
         "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)   END AS acos"
         " FROM google_ads_campaign_day g"
-        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        + _CC_SUBQUERY +
-        " WHERE g.campaign_id = :campaign_id"
+        + _archer_join()
+        + _CC_SUBQUERY
+        + " WHERE g.campaign_id = :campaign_id"
         "   AND g.date BETWEEN :date_from AND :date_to"
         " GROUP BY period"
         " ORDER BY period ASC"
@@ -305,9 +338,9 @@ def get_timeseries(
         "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas"
         " FROM google_ads_campaign_day g"
-        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        + _CC_SUBQUERY +
-        " WHERE g.date BETWEEN :date_from AND :date_to"
+        + _archer_join()
+        + _CC_SUBQUERY
+        + " WHERE g.date BETWEEN :date_from AND :date_to"
         " GROUP BY period"
         " ORDER BY period ASC"
     )
@@ -425,9 +458,9 @@ def get_detailed_export(
         "       THEN SUM(g.spend_usd)"
         "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)    END AS acos"
         " FROM google_ads_campaign_day g"
-        " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        + _CC_SUBQUERY +
-        " WHERE g.date BETWEEN :date_from AND :date_to"
+        + _archer_join()
+        + _CC_SUBQUERY
+        + " WHERE g.date BETWEEN :date_from AND :date_to"
         " GROUP BY g.campaign_id, g.campaign_name, g.asin, period"
         " ORDER BY g.campaign_name ASC, period ASC"
     )

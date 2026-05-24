@@ -11,6 +11,7 @@ class GoogleAdsCampaignDay(Base):
     date = Column(Date, primary_key=True, nullable=False)
     campaign_name = Column(String, nullable=False)
     asin = Column(String, nullable=True, index=True)  # extracted at insert time
+    country_code = Column(String, nullable=True, index=True)  # e.g. "UK", "DE"; None = US
 
     impressions = Column(Integer, default=0)
     clicks = Column(Integer, default=0)
@@ -22,11 +23,12 @@ class GoogleAdsCampaignDay(Base):
 
 
 class ArcherProductDay(Base):
-    """One row per (asin, date). Upserted on each sync."""
+    """One row per (asin, date, geo). Upserted on each sync."""
     __tablename__ = "archer_product_day"
 
     asin = Column(String, primary_key=True, nullable=False)
     date = Column(Date, primary_key=True, nullable=False)
+    geo = Column(String, primary_key=True, nullable=False, default="US")  # US | EU | FE | CA
     product_name = Column(String, nullable=True)
 
     revenue_usd = Column(Float, default=0.0)
@@ -35,6 +37,37 @@ class ArcherProductDay(Base):
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ProductCatalog(Base):
+    """One row per (asin, country_code). Synced from Archer /getproducts."""
+    __tablename__ = "product_catalog"
+
+    asin = Column(String, primary_key=True, nullable=False)
+    country_code = Column(String, primary_key=True, nullable=False)  # e.g. "UK", "DE", "JP"
+    product_name = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
+    rating = Column(Float, nullable=True)
+    review_count = Column(Integer, nullable=True)
+    image_url = Column(String, nullable=True)
+    availability = Column(String, nullable=True)
+    affiliate_url = Column(String, nullable=True)
+    last_synced_at = Column(DateTime, server_default=func.now())
+
+
+class CampaignDraft(Base):
+    """One row per campaign ready to be imported into Google Ads."""
+    __tablename__ = "campaign_draft"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    asin = Column(String, nullable=False, index=True)
+    country_code = Column(String, nullable=False)  # e.g. "UK"
+    product_name = Column(String, nullable=True)
+    attribution_link = Column(String, nullable=True)
+    campaign_name = Column(String, nullable=False)
+    suggested_bid = Column(Float, default=0.50)
+    status = Column(String, nullable=False, default="draft")  # draft | exported
+    created_at = Column(DateTime, server_default=func.now())
 
 
 class TestBatch(Base):

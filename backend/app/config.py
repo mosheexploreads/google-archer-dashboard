@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     archer_password: str = ""
     archer_api_key: str = ""
     archer_reports_endpoint: str = ""  # blank = auto-discover
+    archer_markets: str = "UK,DE,JP,CA"  # comma-separated country codes for catalog sync
 
     google_ads_customer_id: str = ""
     database_url: str = "sqlite:///./ads_dashboard.db"

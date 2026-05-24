@@ -26,6 +26,7 @@ class CampaignRow(BaseModel):
     campaign_id: str
     campaign_name: str
     asin: Optional[str]
+    country_code: Optional[str] = "US"
     product_name: Optional[str]
     impressions: int
     clicks: int
@@ -206,3 +207,61 @@ class TestStatusResponse(BaseModel):
     campaigns: List[TestCampaignStatus]
     total: int
     needs_action: int
+
+
+# ── Product Catalog ───────────────────────────────────────────────────────────
+
+class ProductCatalogItem(BaseModel):
+    asin: str
+    country_code: str
+    product_name: Optional[str]
+    price: Optional[float]
+    rating: Optional[float]
+    review_count: Optional[int]
+    image_url: Optional[str]
+    availability: Optional[str]
+    affiliate_url: Optional[str]
+    last_synced_at: Optional[datetime]
+
+
+class ProductCatalogResponse(BaseModel):
+    items: List[ProductCatalogItem]
+    total: int
+
+
+class CatalogSyncStatus(BaseModel):
+    country_code: str
+    last_synced_at: Optional[datetime]
+    records: int
+
+
+class CatalogSyncStatusResponse(BaseModel):
+    markets: List[CatalogSyncStatus]
+
+
+# ── Campaign Drafts ───────────────────────────────────────────────────────────
+
+class CampaignDraftRow(BaseModel):
+    id: int
+    asin: str
+    country_code: str
+    product_name: Optional[str]
+    attribution_link: Optional[str]
+    campaign_name: str
+    suggested_bid: float
+    status: str
+    created_at: Optional[datetime]
+
+
+class CampaignDraftsResponse(BaseModel):
+    drafts: List[CampaignDraftRow]
+    total: int
+
+
+class GenerateDraftsRequest(BaseModel):
+    items: List[dict]  # [{asin, country_code}, ...]
+
+
+class GenerateDraftsResponse(BaseModel):
+    created: int
+    drafts: List[CampaignDraftRow]

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { TableFilters } from "./TableFilters";
-import type { StatusOption } from "./TableFilters";
+import type { StatusOption, CountryOption } from "./TableFilters";
 import { DateDrillDown } from "./DateDrillDown";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
 import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir } from "../../types";
@@ -31,7 +31,7 @@ interface Props {
   dateDataRef: React.MutableRefObject<Record<string, DateRow[]>>;
 }
 
-const COL_SPAN = 17; // toggle + Campaign + Status + Age + 13 metric columns
+const COL_SPAN = 18; // toggle + Campaign + Country + Status + Age + 13 metric columns
 
 function ageDays(firstSeen: string | null): number | null {
   if (!firstSeen) return null;
@@ -49,6 +49,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const [campaignFilter, setCampaignFilter] = useState("");
   const [asinFilter, setAsinFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusOption>("All");
+  const [countryFilter, setCountryFilter] = useState<CountryOption>("All");
   const [ageMin, setAgeMin]             = useState<number | "">("");
   const [ageMax, setAgeMax]             = useState<number | "">("");
   const [sortKey, setSortKey]       = useState<SortKey>("spend_usd");
@@ -85,6 +86,10 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
     if (statusFilter !== "All") {
       data = data.filter((r) => r.current_status === statusFilter);
     }
+    if (countryFilter !== "All") {
+      const cc = countryFilter === "US" ? null : countryFilter;
+      data = data.filter((r) => (r.country_code ?? null) === cc || r.country_code === countryFilter);
+    }
     if (ageMin !== "" || ageMax !== "") {
       data = data.filter((r) => {
         const d = ageDays(r.first_seen);
@@ -94,7 +99,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
         return true;
       });
     }
-    return [...data].sort((a, b) => {
+    return [...data].sort((a: CampaignRow, b: CampaignRow) => {
       const av = (a[sortKey] as number) ?? 0;
       const bv = (b[sortKey] as number) ?? 0;
       // string sort for campaign_name / asin
@@ -105,7 +110,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
       }
       return sortDir === "asc" ? av - bv : bv - av;
     });
-  }, [rows, campaignFilter, asinFilter, statusFilter, ageMin, ageMax, sortKey, sortDir]);
+  }, [rows, campaignFilter, asinFilter, statusFilter, countryFilter, ageMin, ageMax, sortKey, sortDir]);
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
@@ -143,11 +148,13 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           campaignFilter={campaignFilter}
           asinFilter={asinFilter}
           statusFilter={statusFilter}
+          countryFilter={countryFilter}
           ageMin={ageMin}
           ageMax={ageMax}
           onCampaignChange={setCampaignFilter}
           onAsinChange={setAsinFilter}
           onStatusChange={setStatusFilter}
+          onCountryChange={setCountryFilter}
           onAgeMinChange={setAgeMin}
           onAgeMaxChange={setAgeMax}
         />
@@ -167,6 +174,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={thSort} style={{ minWidth: 140, maxWidth: 220 }} onClick={() => toggleSort("campaign_name")}>
                 Campaign <SortIcon col="campaign_name" />
               </th>
+              <th className={`${thBase} text-center`} style={{ minWidth: 46 }}>Country</th>
               <th className={`${thBase} text-center`} style={{ minWidth: 58 }}>Status</th>
               <th className={`${thBase} text-right`} style={{ minWidth: 46 }}>Age</th>
               <th className={`${thSort} text-right`} style={{ minWidth: 60 }} onClick={() => toggleSort("impressions")}>
@@ -239,6 +247,11 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                       )}
                     </td>
                     <td className={`${tdBase} text-center`}>
+                      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                        {row.country_code ?? "US"}
+                      </span>
+                    </td>
+                    <td className={`${tdBase} text-center`}>
                       {row.current_status ? (
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
                           row.current_status === "Enabled"
@@ -294,6 +307,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <tr className="border-t-2 border-gray-300" style={{ position: "sticky", bottom: 0, zIndex: 10 }}>
                 <td className="px-2 py-2 bg-gray-50" />
                 <td className="px-2 py-2 text-xs font-semibold text-gray-700 bg-gray-50">Total</td>
+                <td className={tfBase} />
                 <td className={tfBase} />
                 <td className={tfBase} />
                 <td className={tfBase}>{fmtNumber(totImpressions)}</td>

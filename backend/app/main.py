@@ -22,13 +22,67 @@ def _ensure_test_campaign_columns(engine):
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     if "test_campaign" not in insp.get_table_names():
-        return  # create_all will build it with the current schema
+        return
     existing = {c["name"] for c in insp.get_columns("test_campaign")}
     with engine.begin() as conn:
         if "last_applied_action" not in existing:
             conn.execute(text("ALTER TABLE test_campaign ADD COLUMN last_applied_action VARCHAR"))
         if "last_applied_at" not in existing:
             conn.execute(text("ALTER TABLE test_campaign ADD COLUMN last_applied_at DATETIME"))
+
+
+def _migrate_archer_product_day(engine):
+    """
+    Migrate archer_product_day to include geo as part of the primary key.
+    Old PK: (asin, date).  New PK: (asin, date, geo).
+    Existing rows are tagged geo='US'.
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "archer_product_day" not in insp.get_table_names():
+        return  # create_all will build the new schema
+    existing_cols = {c["name"] for c in insp.get_columns("archer_product_day")}
+    if "geo" in existing_cols:
+        return  # already migrated
+    logger.info("Migrating archer_product_day: adding geo column and rebuilding PK...")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE archer_product_day_new ("
+            "  asin         TEXT NOT NULL,"
+            "  date         DATE NOT NULL,"
+            "  geo          TEXT NOT NULL DEFAULT 'US',"
+            "  product_name TEXT,"
+            "  revenue_usd  REAL DEFAULT 0.0,"
+            "  orders       INTEGER DEFAULT 0,"
+            "  units_sold   INTEGER DEFAULT 0,"
+            "  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  PRIMARY KEY (asin, date, geo)"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO archer_product_day_new "
+            "(asin, date, geo, product_name, revenue_usd, orders, units_sold, created_at, updated_at) "
+            "SELECT asin, date, 'US', product_name, revenue_usd, orders, units_sold, created_at, updated_at "
+            "FROM archer_product_day"
+        ))
+        conn.execute(text("DROP TABLE archer_product_day"))
+        conn.execute(text("ALTER TABLE archer_product_day_new RENAME TO archer_product_day"))
+    logger.info("archer_product_day migration complete.")
+
+
+def _migrate_google_ads_country_code(engine):
+    """Add country_code column to google_ads_campaign_day (nullable, defaults to NULL = US)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "google_ads_campaign_day" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("google_ads_campaign_day")}
+    if "country_code" in existing_cols:
+        return
+    logger.info("Adding country_code column to google_ads_campaign_day...")
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE google_ads_campaign_day ADD COLUMN country_code VARCHAR"))
 
 
 @asynccontextmanager
@@ -39,10 +93,13 @@ async def lifespan(app: FastAPI):
     # Create tables if they don't exist yet
     from .database import engine, Base
     from . import models  # noqa: F401
-    Base.metadata.create_all(bind=engine)
 
-    # Lightweight column migrations for SQLite
+    # Run migrations before create_all so existing tables are updated first
+    _migrate_archer_product_day(engine)
+    _migrate_google_ads_country_code(engine)
     _ensure_test_campaign_columns(engine)
+
+    Base.metadata.create_all(bind=engine)
 
     # Start 4-hour scheduler (Archer only — Google Ads data comes via CSV upload)
     start_scheduler()
@@ -86,12 +143,16 @@ from .api.routes_sync import router as sync_router
 from .api.routes_dashboard import router as dashboard_router
 from .api.routes_upload import router as upload_router
 from .api.routes_testing import router as testing_router
+from .api.routes_catalog import router as catalog_router
+from .api.routes_campaigns import router as campaigns_router
 
 app.include_router(health_router, prefix="/api", tags=["health"])
 app.include_router(sync_router, tags=["sync"])
 app.include_router(dashboard_router, tags=["dashboard"])
 app.include_router(upload_router, tags=["upload"])
 app.include_router(testing_router, tags=["testing"])
+app.include_router(catalog_router, tags=["catalog"])
+app.include_router(campaigns_router, tags=["campaigns"])
 
 # Serve built React frontend (production only — not present in local dev)
 import os

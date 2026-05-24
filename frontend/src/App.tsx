@@ -10,12 +10,21 @@ import { ExportModal } from "./components/export/ExportModal";
 import { CsvUpload } from "./components/shared/CsvUpload";
 import { WarningBanner } from "./components/shared/WarningBanner";
 import { TestingPage } from "./components/testing/TestingPage";
+import { CatalogPage } from "./components/catalog/CatalogPage";
+import { CampaignsPage } from "./components/campaigns/CampaignsPage";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRefresh } from "./hooks/useRefresh";
 import { useWarnings } from "./hooks/useWarnings";
 import type { DateRange, GroupBy, DateRow, CampaignRow } from "./types";
 
-type Tab = "dashboard" | "testing";
+type Tab = "dashboard" | "testing" | "catalog" | "campaigns";
+
+const TAB_LABELS: Record<Tab, string> = {
+  dashboard: "Dashboard",
+  testing: "Testing",
+  catalog: "Product Catalog",
+  campaigns: "Campaigns",
+};
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -32,12 +41,13 @@ export default function App() {
   const [groupby, setGroupby] = useState<GroupBy>("day");
   const [showExport, setShowExport] = useState(false);
   const [exportRows, setExportRows] = useState<CampaignRow[]>([]);
+  const [countryFilter] = useState("");
 
   // Shared cache for date drill-down data — populated by DateDrillDown on expand
   const dateDataRef = useRef<Record<string, DateRow[]>>({});
 
   const { summary, campaigns, timeseries, loading, error, reload } =
-    useDashboardData(dateRange.from, dateRange.to);
+    useDashboardData(dateRange.from, dateRange.to, countryFilter);
 
   const { syncStatus, loadStatus, handleTrigger, triggering } = useRefresh(reload);
   const { warnings, reload: reloadWarnings } = useWarnings();
@@ -55,22 +65,24 @@ export default function App() {
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
       {/* Tab navigation */}
       <div className="flex gap-1 border-b border-gray-200 -mb-2">
-        {(["dashboard", "testing"] as Tab[]).map((t) => (
+        {(["dashboard", "testing", "catalog", "campaigns"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize rounded-t transition-colors ${
+            className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
               tab === t
                 ? "text-blue-600 border-b-2 border-blue-600 bg-white"
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {t === "dashboard" ? "Dashboard" : "Testing"}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
       {tab === "testing" && <TestingPage />}
+      {tab === "catalog" && <CatalogPage />}
+      {tab === "campaigns" && <CampaignsPage />}
 
       {tab === "dashboard" && <>
       {/* Controls row */}

@@ -24,7 +24,7 @@ class UploadResult(BaseModel):
     message: str
 
 
-_MODEL_FIELDS = {"campaign_id", "date", "campaign_name", "asin", "impressions", "clicks", "spend_usd", "campaign_status"}
+_MODEL_FIELDS = {"campaign_id", "date", "campaign_name", "asin", "country_code", "impressions", "clicks", "spend_usd", "campaign_status"}
 
 
 def _upsert_rows(db: Session, rows: list[dict]) -> int:

@@ -18,7 +18,7 @@ interface DashboardState {
   error: string | null;
 }
 
-export function useDashboardData(dateFrom: string, dateTo: string) {
+export function useDashboardData(dateFrom: string, dateTo: string, countryCode = "") {
   const [state, setState] = useState<DashboardState>({
     summary: null,
     campaigns: null,
@@ -31,8 +31,8 @@ export function useDashboardData(dateFrom: string, dateTo: string) {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const [summary, campaigns, timeseries] = await Promise.all([
-        fetchSummary(dateFrom, dateTo),
-        fetchCampaigns(dateFrom, dateTo),
+        fetchSummary(dateFrom, dateTo, countryCode),
+        fetchCampaigns(dateFrom, dateTo, "spend_usd", "desc", "", "", "", countryCode),
         fetchTimeseries(dateFrom, dateTo, "day"),
       ]);
       setState({ summary, campaigns, timeseries, loading: false, error: null });
@@ -40,7 +40,7 @@ export function useDashboardData(dateFrom: string, dateTo: string) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setState((s) => ({ ...s, loading: false, error: msg }));
     }
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, countryCode]);
 
   useEffect(() => {
     load();
