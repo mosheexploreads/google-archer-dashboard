@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from ..database import SessionLocal
-from ..models import GoogleAdsCampaignDay, ArcherProductDay, ProductCatalog, SyncLog
+from ..models import GoogleAdsCampaignDay, ArcherProductDay, ProductCatalog, SyncLog, ArcherAsinStatus
 from ..utils.asin_extractor import extract_asin
 from ..utils.geo_utils import ARCHER_GEOS, country_to_geo
 from ..utils.date_utils import yesterday, days_ago
@@ -246,6 +246,94 @@ def sync_product_catalog() -> int:
         db.rollback()
         _log_sync(db, "archer_catalog", "error", started, error=str(exc))
         logger.error("Archer catalog sync failed: %s", exc, exc_info=True)
+        raise
+    finally:
+        db.close()
+
+
+def verify_warned_asins() -> int:
+    """
+    For every enabled campaign whose ASIN is missing from recent Archer data,
+    call /get_single_product to confirm whether the product is truly removed.
+    Updates archer_asin_status table. Returns count of removed ASINs found.
+    """
+    from sqlalchemy import text
+    started = datetime.utcnow()
+    db = SessionLocal()
+    removed_count = 0
+    try:
+        # Get all unique ASINs from enabled campaigns that have ever had Archer data
+        # but are now absent 2+ days (same candidates as the warning banner)
+        sql = text("""
+            WITH archer_last AS (
+                SELECT asin, MAX(date) AS last_date
+                FROM archer_product_day
+                GROUP BY asin
+            ),
+            max_archer AS (
+                SELECT MAX(date) AS max_date FROM archer_product_day
+            )
+            SELECT DISTINCT g.asin
+            FROM google_ads_campaign_day g
+            INNER JOIN (
+                SELECT campaign_id, MAX(date) AS max_date
+                FROM google_ads_campaign_day
+                WHERE campaign_status IS NOT NULL
+                GROUP BY campaign_id
+            ) ld ON g.campaign_id = ld.campaign_id AND g.date = ld.max_date
+            JOIN archer_last al ON g.asin = al.asin
+            CROSS JOIN max_archer ma
+            WHERE g.campaign_status = 'Enabled'
+              AND g.asin IS NOT NULL
+              AND CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER) >= 2
+        """)
+        rows = db.execute(sql).fetchall()
+        asins = [r[0] for r in rows]
+        logger.info("verify_warned_asins: checking %d ASINs against Archer API", len(asins))
+
+        if not asins:
+            return 0
+
+        client = ArcherClient()
+        now = datetime.utcnow()
+
+        for asin in asins:
+            try:
+                result = client.check_asin(asin)
+            except Exception as exc:
+                logger.warning("check_asin(%s) failed: %s", asin, exc)
+                continue
+
+            existing = db.get(ArcherAsinStatus, asin)
+            if existing:
+                existing.is_active = 1 if result["is_active"] else 0
+                existing.last_checked_at = now
+                if not result["is_active"] and existing.removed_at is None:
+                    existing.removed_at = now
+                if result["is_active"]:
+                    existing.removed_at = None
+                if result["product_name"]:
+                    existing.product_name = result["product_name"]
+            else:
+                db.add(ArcherAsinStatus(
+                    asin=asin,
+                    is_active=1 if result["is_active"] else 0,
+                    product_name=result["product_name"],
+                    last_checked_at=now,
+                    removed_at=None if result["is_active"] else now,
+                ))
+
+            if not result["is_active"]:
+                removed_count += 1
+
+        db.commit()
+        logger.info("verify_warned_asins: %d removed, %d active out of %d checked",
+                    removed_count, len(asins) - removed_count, len(asins))
+        return removed_count
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("verify_warned_asins failed: %s", exc, exc_info=True)
         raise
     finally:
         db.close()

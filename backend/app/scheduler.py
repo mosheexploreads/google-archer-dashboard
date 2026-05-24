@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 _scheduler: Optional[BackgroundScheduler] = None
 _JOB_ID = "full_sync"
+_CHECK_JOB_ID = "verify_asins"
 _INTERVAL_HOURS = 4
 
 
@@ -19,6 +20,15 @@ def _sync_job():
     """Scheduled job: Archer only. Google Ads data arrives via CSV upload."""
     from .services.sync_service import run_full_sync
     run_full_sync()
+
+
+def _verify_job():
+    """Daily job: verify warned ASINs against Archer API."""
+    from .services.sync_service import verify_warned_asins
+    try:
+        verify_warned_asins()
+    except Exception:
+        logger.exception("verify_warned_asins job failed (non-fatal)")
 
 
 def start_scheduler():
@@ -33,8 +43,15 @@ def start_scheduler():
         id=_JOB_ID,
         replace_existing=True,
     )
+    _scheduler.add_job(
+        _verify_job,
+        trigger="interval",
+        hours=24,
+        id=_CHECK_JOB_ID,
+        replace_existing=True,
+    )
     _scheduler.start()
-    logger.info("Scheduler started — sync every %d hours", _INTERVAL_HOURS)
+    logger.info("Scheduler started — sync every %d hours, ASIN check every 24h", _INTERVAL_HOURS)
 
 
 def stop_scheduler():

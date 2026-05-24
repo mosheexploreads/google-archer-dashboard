@@ -370,8 +370,9 @@ def get_timeseries(
 
 def get_warnings(db: Session) -> List[ProductWarning]:
     """
-    Return enabled campaigns whose ASIN previously appeared in Archer but
-    has been absent for 2+ days — indicating the product was removed.
+    Return enabled campaigns whose ASIN is confirmed removed from Archer
+    (is_active=0 in archer_asin_status). ASINs not yet verified are excluded
+    so the banner only shows actionable, API-confirmed removals.
     """
     sql = text("""
         WITH latest_status AS (
@@ -397,12 +398,13 @@ def get_warnings(db: Session) -> List[ProductWarning]:
         SELECT DISTINCT
             ls.campaign_name,
             ls.asin,
-            al.last_date        AS last_archer_date,
-            CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER) AS days_missing
+            al.last_date                                                        AS last_archer_date,
+            CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER)  AS days_missing
         FROM latest_status ls
         JOIN archer_last al ON ls.asin = al.asin
         CROSS JOIN max_archer ma
-        WHERE CAST(julianday(ma.max_date) - julianday(al.last_date) AS INTEGER) >= 2
+        JOIN archer_asin_status s ON ls.asin = s.asin
+        WHERE s.is_active = 0
         ORDER BY al.last_date ASC
     """)
     rows = db.execute(sql).fetchall()

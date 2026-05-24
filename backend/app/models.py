@@ -100,6 +100,17 @@ class TestCampaign(Base):
     last_applied_at = Column(DateTime, nullable=True)
 
 
+class ArcherAsinStatus(Base):
+    """Per-ASIN verification result from /get_single_product. Updated daily."""
+    __tablename__ = "archer_asin_status"
+
+    asin = Column(String, primary_key=True, nullable=False)
+    is_active = Column(Integer, nullable=False, default=1)  # 1 = active, 0 = removed
+    product_name = Column(String, nullable=True)
+    last_checked_at = Column(DateTime, nullable=False)
+    removed_at = Column(DateTime, nullable=True)  # first time we detected removal
+
+
 class SyncLog(Base):
     """Tracks each sync attempt."""
     __tablename__ = "sync_log"

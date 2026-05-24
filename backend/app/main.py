@@ -107,11 +107,15 @@ async def lifespan(app: FastAPI):
     # Run initial Archer sync in background so startup is non-blocking
     import threading
     def _startup_sync():
-        from .services.sync_service import sync_archer
+        from .services.sync_service import sync_archer, verify_warned_asins
         try:
             sync_archer()
         except Exception:
             logger.exception("Startup Archer sync failed (non-fatal)")
+        try:
+            verify_warned_asins()
+        except Exception:
+            logger.exception("Startup ASIN verification failed (non-fatal)")
 
     threading.Thread(target=_startup_sync, daemon=True, name="startup-sync").start()
 

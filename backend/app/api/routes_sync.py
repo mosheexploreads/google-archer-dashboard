@@ -39,3 +39,12 @@ def sync_status(db: Session = Depends(get_db)):
 def trigger_sync():
     trigger_sync_now()
     return TriggerResponse(message="Sync triggered. Check /api/sync/status for progress.")
+
+
+@router.post("/check-products", response_model=TriggerResponse)
+def trigger_product_check():
+    """Manually trigger ASIN removal verification against Archer API."""
+    import threading
+    from ..services.sync_service import verify_warned_asins
+    threading.Thread(target=verify_warned_asins, daemon=True, name="manual-asin-check").start()
+    return TriggerResponse(message="ASIN removal check started in background.")

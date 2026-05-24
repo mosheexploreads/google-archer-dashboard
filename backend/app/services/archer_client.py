@@ -217,6 +217,28 @@ class ArcherClient:
             })
         return normalised
 
+    def check_asin(self, asin: str) -> dict:
+        """
+        Check whether an ASIN is still active in Archer via GET /get_single_product.
+        Returns {"is_active": bool, "product_name": str|None}.
+        """
+        with httpx.Client() as client:
+            token = self._get_token(client)
+            resp = client.get(
+                f"{self._base_url}/get_single_product",
+                params={"asin": asin},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "is_active": True,
+                "product_name": data.get("product_name") or data.get("PRODUCT_NAME"),
+            }
+        # 500 with "ASIN not found" means removed; treat any non-200 as removed
+        return {"is_active": False, "product_name": None}
+
     def generate_attribution_link(self, asin: str, link_name: str, geo: str) -> Optional[str]:
         """
         Call POST /generate_attribution_link and return the attribution URL.
