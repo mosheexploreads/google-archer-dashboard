@@ -49,24 +49,13 @@ _CC_SUBQUERY = (
 )
 
 # When filtering by country_code, restrict the Archer JOIN to the matching geo.
-# Without a filter we union all geos so totals aggregate across markets.
+# Without a filter join only US geo — all current campaigns are US campaigns and
+# summing all geos would inflate revenue with EU/FE/CA data unrelated to the ad spend.
 def _archer_join(country_code: str = "") -> str:
     if country_code:
         geo = country_to_geo(country_code)
         return f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = '{geo}'"
-    # No filter: sum across all geos (one row per asin+date+geo, so we need to
-    # aggregate — use a subquery that collapses geos first.
-    return (
-        " LEFT JOIN ("
-        "   SELECT asin, date,"
-        "          SUM(revenue_usd) AS revenue_usd,"
-        "          SUM(orders)      AS orders,"
-        "          SUM(units_sold)  AS units_sold,"
-        "          MAX(product_name) AS product_name"
-        "   FROM archer_product_day"
-        "   GROUP BY asin, date"
-        " ) a ON g.asin = a.asin AND a.date = g.date"
-    )
+    return " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = 'US'"
 
 _SORT_WHITELIST = {
     "campaign_name", "asin", "spend_usd", "revenue_usd",
