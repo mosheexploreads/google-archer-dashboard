@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     archer_reports_endpoint: str = ""  # blank = auto-discover
     archer_markets: str = "UK,DE,JP,CA"  # comma-separated country codes for catalog sync
 
+    anthropic_api_key: str = ""
+
     google_ads_customer_id: str = ""
     database_url: str = "sqlite:///./ads_dashboard.db"
     backend_port: int = 8000

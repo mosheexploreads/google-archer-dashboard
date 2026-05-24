@@ -265,3 +265,32 @@ class GenerateDraftsRequest(BaseModel):
 class GenerateDraftsResponse(BaseModel):
     created: int
     drafts: List[CampaignDraftRow]
+
+
+# ── Campaign Creator (ASIN → ad copy → Google Ads ZIP) ───────────────────────
+
+class CampaignCreatorStartRequest(BaseModel):
+    items: List[dict]  # [{asin: str, product_name: str | None}, ...]
+
+
+class CampaignCreatorJobStatus(BaseModel):
+    job_id: str
+    status: str   # pending | running | completed | partial | failed
+    total: int
+    processed: int
+    failed_count: int
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+
+class CampaignCreatorItemStatus(BaseModel):
+    id: int
+    asin: str
+    product_name: Optional[str]
+    attribution_link: Optional[str]
+    status: str   # pending | done | failed
+    error: Optional[str]
+
+
+class CampaignCreatorJobsResponse(BaseModel):
+    jobs: List[CampaignCreatorJobStatus]

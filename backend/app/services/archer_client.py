@@ -255,7 +255,8 @@ class ArcherClient:
             resp.raise_for_status()
             data = resp.json()
             url = (
-                data.get("attribution_url")
+                data.get("attribution_link")
+                or data.get("attribution_url")
                 or data.get("url")
                 or data.get("link")
                 or data.get("tracking_url")

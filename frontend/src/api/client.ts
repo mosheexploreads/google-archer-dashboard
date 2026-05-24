@@ -13,6 +13,8 @@ import type {
   CatalogSyncStatus,
   CampaignDraft,
   CampaignDraftsData,
+  CampaignCreatorJob,
+  CampaignCreatorJobsData,
 } from "../types";
 
 const api = axios.create({ baseURL: "/api" });
@@ -170,4 +172,31 @@ export async function markDraftExported(draftId: number): Promise<void> {
 
 export function campaignExportUrl(): string {
   return "/api/campaigns/export";
+}
+
+// ── Campaign Creator ──────────────────────────────────────────────────────────
+
+export async function startCampaignJob(
+  items: Array<{ asin: string; product_name: string | null }>
+): Promise<{ job_id: string; total: number }> {
+  const { data } = await api.post("/campaign-creator/start", { items });
+  return data;
+}
+
+export async function getCampaignJobStatus(
+  jobId: string
+): Promise<CampaignCreatorJob> {
+  const { data } = await api.get(`/campaign-creator/jobs/${jobId}`);
+  return data;
+}
+
+export async function listCampaignJobs(): Promise<CampaignCreatorJob[]> {
+  const { data }: { data: CampaignCreatorJobsData } = await api.get(
+    "/campaign-creator/jobs"
+  );
+  return data.jobs;
+}
+
+export function campaignCreatorDownloadUrl(jobId: string): string {
+  return `/api/campaign-creator/jobs/${jobId}/download`;
 }

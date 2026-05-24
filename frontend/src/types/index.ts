@@ -233,3 +233,19 @@ export interface CampaignDraftsData {
   drafts: CampaignDraft[];
   total: number;
 }
+
+// ── Campaign Creator ──────────────────────────────────────────────────────────
+
+export interface CampaignCreatorJob {
+  job_id: string;
+  status: "pending" | "running" | "completed" | "partial" | "failed";
+  total: number;
+  processed: number;
+  failed_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CampaignCreatorJobsData {
+  jobs: CampaignCreatorJob[];
+}

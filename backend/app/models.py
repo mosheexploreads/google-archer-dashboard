@@ -111,6 +111,44 @@ class ArcherAsinStatus(Base):
     removed_at = Column(DateTime, nullable=True)  # first time we detected removal
 
 
+class AttributionLinkCache(Base):
+    """Cached Archer attribution links keyed by ASIN."""
+    __tablename__ = "attribution_link_cache"
+
+    asin = Column(String, primary_key=True, nullable=False)
+    url = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class CampaignJob(Base):
+    """One row per campaign-generation batch submitted by the user."""
+    __tablename__ = "campaign_job"
+
+    id = Column(String, primary_key=True, nullable=False)  # UUID
+    status = Column(String, nullable=False, default="pending")  # pending|running|completed|partial|failed
+    total = Column(Integer, default=0)
+    processed = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    settings = Column(Text, nullable=True)  # reserved JSON
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class CampaignJobItem(Base):
+    """One row per ASIN in a campaign job."""
+    __tablename__ = "campaign_job_item"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("campaign_job.id"), nullable=False, index=True)
+    asin = Column(String, nullable=False)
+    product_name = Column(String, nullable=True)
+    attribution_link = Column(String, nullable=True)
+    ad_copy = Column(Text, nullable=True)   # JSON: {campaign_name, keywords, headlines, descriptions}
+    status = Column(String, nullable=False, default="pending")  # pending|done|failed
+    error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class SyncLog(Base):
     """Tracks each sync attempt."""
     __tablename__ = "sync_log"
