@@ -75,6 +75,28 @@ def trigger_catalog_sync():
     return TriggerResponse(message="Catalog sync started in background.")
 
 
+@router.get("/debug")
+def catalog_debug(db: Session = Depends(get_db)):
+    """Debug: show settings and test fetch_products for UK."""
+    from ..config import get_settings
+    from ..services.archer_client import ArcherClient
+    settings = get_settings()
+    markets = [m.strip().upper() for m in settings.archer_markets.split(",") if m.strip()]
+    result = {
+        "archer_base_url": settings.archer_base_url,
+        "archer_markets_raw": settings.archer_markets,
+        "markets_parsed": markets,
+    }
+    try:
+        client = ArcherClient()
+        products = client.fetch_products("UK")
+        result["uk_products_fetched"] = len(products)
+        result["uk_sample"] = products[0] if products else None
+    except Exception as e:
+        result["fetch_error"] = str(e)
+    return result
+
+
 @router.get("/sync/log")
 def catalog_sync_log(db: Session = Depends(get_db)):
     """Return last 10 SyncLog entries for archer_catalog — debug helper."""
