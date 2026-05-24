@@ -76,25 +76,33 @@ def trigger_catalog_sync():
 
 
 @router.get("/debug")
-def catalog_debug(db: Session = Depends(get_db)):
-    """Debug: show settings and test fetch_products for UK."""
+def catalog_debug():
+    """Debug: show settings and last sync entries."""
     from ..config import get_settings
-    from ..services.archer_client import ArcherClient
     settings = get_settings()
     markets = [m.strip().upper() for m in settings.archer_markets.split(",") if m.strip()]
-    result = {
+    return {
         "archer_base_url": settings.archer_base_url,
-        "archer_markets_raw": settings.archer_markets,
+        "archer_username": settings.archer_username,
+        "archer_markets_raw": repr(settings.archer_markets),
         "markets_parsed": markets,
+        "has_password": bool(settings.archer_password),
     }
+
+
+@router.get("/debug/fetch")
+def catalog_debug_fetch():
+    """Debug: actually call fetch_products for UK (may be slow)."""
+    from ..services.archer_client import ArcherClient
+    import time
     try:
+        start = time.time()
         client = ArcherClient()
         products = client.fetch_products("UK")
-        result["uk_products_fetched"] = len(products)
-        result["uk_sample"] = products[0] if products else None
+        elapsed = round(time.time() - start, 2)
+        return {"uk_products_fetched": len(products), "elapsed_s": elapsed, "sample": products[0] if products else None}
     except Exception as e:
-        result["fetch_error"] = str(e)
-    return result
+        return {"fetch_error": str(e)}
 
 
 @router.get("/sync/log")
