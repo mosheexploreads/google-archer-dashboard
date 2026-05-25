@@ -51,13 +51,15 @@ def trigger_product_check():
     return TriggerResponse(message="ASIN removal check started in background.")
 
 
-@router.post("/maintenance/purge-db")
+@router.get("/maintenance/purge-db")
 def purge_unused_data(db: Session = Depends(get_db)):
     """
     One-time maintenance: delete unused data (product_catalog + non-US archer rows)
     then VACUUM to reclaim disk space.
     """
     import logging
+    import os
+    from ..database import engine
     logger = logging.getLogger(__name__)
 
     results = {}
@@ -72,8 +74,16 @@ def purge_unused_data(db: Session = Depends(get_db)):
 
     db.commit()
 
-    # VACUUM reclaims freed pages (must run outside a transaction)
-    db.execute(text("VACUUM"))
-    logger.info("DB maintenance complete: %s", results)
+    # VACUUM must run outside a transaction — use a raw connection
+    with engine.connect() as conn:
+        conn.execute(text("VACUUM"))
 
+    # Report DB file size after vacuum
+    db_path = str(engine.url).replace("sqlite:///", "")
+    try:
+        results["db_size_mb_after"] = round(os.path.getsize(db_path) / 1024 / 1024, 1)
+    except Exception:
+        pass
+
+    logger.info("DB maintenance complete: %s", results)
     return {"status": "ok", "deleted": results}
