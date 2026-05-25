@@ -126,7 +126,7 @@ def _parse_archer_date(raw) -> Optional[date]:
 
 
 def sync_archer() -> int:
-    """Fetch D-30 through D-1 from Archer for all geos and upsert. Safe to re-run."""
+    """Fetch D-30 through D-1 from Archer (US only) and upsert. Safe to re-run."""
     date_from = days_ago(30)
     date_to   = days_ago(1)
     started   = datetime.utcnow()
@@ -135,8 +135,10 @@ def sync_archer() -> int:
     try:
         client = ArcherClient()
 
-        for geo in ARCHER_GEOS:
-            rows = client.fetch_earnings(date_from, date_to, geo=None if geo == "US" else geo)
+        # US only — multi-geo sync was disabled because Archer staging API isn't
+        # production-ready. Non-US rows inflate the DB and double revenue totals.
+        for geo in ["US"]:
+            rows = client.fetch_earnings(date_from, date_to, geo=None)
 
             # Aggregate by (asin, date, geo) — API may return one row per link.
             aggregated: dict[tuple, dict] = {}
@@ -354,9 +356,7 @@ def run_full_sync():
         sync_archer()
     except Exception:
         pass
-    try:
-        sync_product_catalog()
-    except Exception:
-        pass
+    # sync_product_catalog is NOT called here — catalog tab is hidden and
+    # the 223k-row table was filling the Railway volume.
     finally:
         _is_running = False

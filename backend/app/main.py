@@ -71,6 +71,43 @@ def _migrate_archer_product_day(engine):
     logger.info("archer_product_day migration complete.")
 
 
+def _purge_unused_data():
+    """
+    One-time startup cleanup: remove non-US archer rows and all product_catalog
+    rows that were written during the multi-geo experiment.  Uses an in-memory
+    journal so this works even when the volume is nearly full.
+    """
+    import os
+    import sqlite3 as _sqlite3
+    from .config import get_settings
+
+    db_url = get_settings().database_url
+    db_path = db_url.replace("sqlite:///", "")
+    if not os.path.exists(db_path):
+        return  # fresh DB, nothing to purge
+
+    try:
+        conn = _sqlite3.connect(db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=MEMORY")
+        cur = conn.execute("DELETE FROM product_catalog")
+        pc_deleted = cur.rowcount
+        cur = conn.execute("DELETE FROM archer_product_day WHERE geo != 'US'")
+        non_us_deleted = cur.rowcount
+        conn.commit()
+        try:
+            conn.execute("VACUUM")
+        except Exception:
+            pass  # VACUUM may fail if disk is still too full — safe to skip
+        conn.close()
+        if pc_deleted or non_us_deleted:
+            logger.info(
+                "Startup purge: deleted %d product_catalog rows, %d non-US archer rows.",
+                pc_deleted, non_us_deleted,
+            )
+    except Exception:
+        logger.exception("Startup purge failed (non-fatal)")
+
+
 def _migrate_google_ads_country_code(engine):
     """Add country_code column to google_ads_campaign_day (nullable, defaults to NULL = US)."""
     from sqlalchemy import inspect, text
@@ -89,6 +126,9 @@ def _migrate_google_ads_country_code(engine):
 async def lifespan(app: FastAPI):
     # ── Startup ────────────────────────────────────────────────────────────────
     logger.info("Starting up Ads Dashboard backend...")
+
+    # Purge bloated data BEFORE opening SQLAlchemy (raw connection, memory journal)
+    _purge_unused_data()
 
     # Create tables if they don't exist yet
     from .database import engine, Base
