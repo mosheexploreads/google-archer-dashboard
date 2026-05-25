@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -48,3 +49,31 @@ def trigger_product_check():
     from ..services.sync_service import verify_warned_asins
     threading.Thread(target=verify_warned_asins, daemon=True, name="manual-asin-check").start()
     return TriggerResponse(message="ASIN removal check started in background.")
+
+
+@router.post("/maintenance/purge-db")
+def purge_unused_data(db: Session = Depends(get_db)):
+    """
+    One-time maintenance: delete unused data (product_catalog + non-US archer rows)
+    then VACUUM to reclaim disk space.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    results = {}
+
+    # Delete all product_catalog rows (feature is hidden, 223k+ rows from debug sync)
+    r = db.execute(text("DELETE FROM product_catalog"))
+    results["product_catalog_deleted"] = r.rowcount
+
+    # Delete non-US archer_product_day rows (EU/FE/CA — not used, inflate DB)
+    r = db.execute(text("DELETE FROM archer_product_day WHERE geo != 'US'"))
+    results["archer_non_us_deleted"] = r.rowcount
+
+    db.commit()
+
+    # VACUUM reclaims freed pages (must run outside a transaction)
+    db.execute(text("VACUUM"))
+    logger.info("DB maintenance complete: %s", results)
+
+    return {"status": "ok", "deleted": results}
