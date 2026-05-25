@@ -52,38 +52,56 @@ def trigger_product_check():
 
 
 @router.get("/maintenance/purge-db")
-def purge_unused_data(db: Session = Depends(get_db)):
+def purge_unused_data():
     """
-    One-time maintenance: delete unused data (product_catalog + non-US archer rows)
-    then VACUUM to reclaim disk space.
+    One-time maintenance: delete unused data using an in-memory journal
+    so the operation works even when the disk is full.
     """
     import logging
     import os
-    from ..database import engine
+    import sqlite3
+    from ..config import get_settings
+
     logger = logging.getLogger(__name__)
+    settings = get_settings()
 
-    results = {}
+    # Resolve the actual file path from the DATABASE_URL
+    db_url = settings.database_url  # e.g. sqlite:////data/ads_dashboard.db
+    db_path = db_url.replace("sqlite:///", "")
+    if not os.path.exists(db_path):
+        return {"status": "error", "message": f"DB not found at {db_path}"}
 
-    # Delete all product_catalog rows (feature is hidden, 223k+ rows from debug sync)
-    r = db.execute(text("DELETE FROM product_catalog"))
-    results["product_catalog_deleted"] = r.rowcount
+    size_before = round(os.path.getsize(db_path) / 1024 / 1024, 1)
+    results: dict = {"db_path": db_path, "db_size_mb_before": size_before}
 
-    # Delete non-US archer_product_day rows (EU/FE/CA — not used, inflate DB)
-    r = db.execute(text("DELETE FROM archer_product_day WHERE geo != 'US'"))
-    results["archer_non_us_deleted"] = r.rowcount
+    conn = sqlite3.connect(db_path)
+    try:
+        # Use in-memory journal — no disk space needed for the journal file
+        conn.execute("PRAGMA journal_mode=MEMORY")
 
-    db.commit()
+        cur = conn.execute("DELETE FROM product_catalog")
+        results["product_catalog_deleted"] = cur.rowcount
 
-    # VACUUM must run outside a transaction — use a raw connection
-    with engine.connect() as conn:
-        conn.execute(text("VACUUM"))
+        cur = conn.execute("DELETE FROM archer_product_day WHERE geo != 'US'")
+        results["archer_non_us_deleted"] = cur.rowcount
 
-    # Report DB file size after vacuum
-    db_path = str(engine.url).replace("sqlite:///", "")
+        conn.commit()
+
+        # VACUUM reclaims freed pages; needs temp space equal to DB size.
+        # Use VACUUM INTO a temp file then swap, or just try and catch.
+        try:
+            conn.execute("VACUUM")
+            conn.commit()
+        except Exception as e:
+            results["vacuum_error"] = str(e)
+
+    finally:
+        conn.close()
+
     try:
         results["db_size_mb_after"] = round(os.path.getsize(db_path) / 1024 / 1024, 1)
     except Exception:
         pass
 
     logger.info("DB maintenance complete: %s", results)
-    return {"status": "ok", "deleted": results}
+    return {"status": "ok", "results": results}
