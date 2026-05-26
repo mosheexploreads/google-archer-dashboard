@@ -57,10 +57,30 @@ def _archer_join(country_code: str = "") -> str:
         return f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = '{geo}'"
     return " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = 'US'"
 
+# Map sort_by param to the qualified column expression used in ORDER BY.
+# Unqualified names like "asin" are ambiguous when multiple JOINed tables
+# have the same column, so we use the table alias explicitly.
 _SORT_WHITELIST = {
     "campaign_name", "asin", "spend_usd", "revenue_usd",
     "roas", "rpc", "acos", "orders", "units_sold",
     "clicks", "impressions", "ctr", "cpc", "profit", "conv_rate",
+}
+_SORT_COL = {
+    "asin":          "g.asin",
+    "campaign_name": "g.campaign_name",
+    "spend_usd":     "spend_usd",
+    "revenue_usd":   "revenue_usd",
+    "roas":          "roas",
+    "rpc":           "rpc",
+    "acos":          "acos",
+    "orders":        "orders",
+    "units_sold":    "units_sold",
+    "clicks":        "clicks",
+    "impressions":   "impressions",
+    "ctr":           "ctr",
+    "cpc":           "cpc",
+    "profit":        "profit",
+    "conv_rate":     "conv_rate",
 }
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -117,6 +137,7 @@ def get_campaigns(
 ) -> List[CampaignRow]:
     if sort_by not in _SORT_WHITELIST:
         sort_by = "spend_usd"
+    sort_col = _SORT_COL.get(sort_by, sort_by)
     dir_sql = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
     country_filter = "AND g.country_code = :country_code" if country_code else ""
@@ -178,7 +199,7 @@ def get_campaigns(
         "   AND (:status   = '' OR COALESCE(ls.campaign_status, '') = :status)"
         f"  {country_filter}"
         " GROUP BY g.campaign_id, g.asin"
-        f" ORDER BY {sort_by} {dir_sql}"
+        f" ORDER BY {sort_col} {dir_sql}"
     )
 
     params: dict = {
