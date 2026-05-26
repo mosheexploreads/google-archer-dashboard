@@ -4,9 +4,11 @@ Two query patterns:
   1. get_campaigns  — campaign-level aggregates (no date dimension)
   2. get_campaign_dates — per-period rows for one campaign
 
-Revenue de-duplication: when multiple campaigns share the same ASIN on the
-same day, Archer revenue/orders are divided equally across those campaigns so
-totals never double-count.
+Revenue de-duplication (two-level fallback):
+  1. If ≥1 campaign for an ASIN+date has spend > 0, only those campaigns share the
+     Archer revenue; paused ($0-spend) siblings receive $0 so totals don't inflate.
+  2. If ALL campaigns for that ASIN+date have $0 spend (all paused), every campaign
+     receives an equal share so revenue is never silently dropped.
 """
 from datetime import date
 from typing import Optional, List, Literal
@@ -37,17 +39,41 @@ def _period_expr(groupby: str) -> str:
     return "g.date"  # day (default)
 
 
-# Subquery: count how many campaigns share the same (asin, date) in the range
-# AND had actual spend > 0 that day.  Paused / $0-spend campaigns are excluded
-# so revenue is not diluted by inactive campaigns sharing the same ASIN.
+# Subquery: per (asin, date) compute
+#   cnt_active — campaigns with spend > 0
+#   cnt        — effective denominator: cnt_active if any are active, else total count
+#                (so revenue is never lost when all campaigns are paused)
 _CC_SUBQUERY = (
     " LEFT JOIN ("
-    "   SELECT asin, date, COUNT(*) AS cnt"
+    "   SELECT asin, date,"
+    "     SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END) AS cnt_active,"
+    "     CASE WHEN SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END) > 0"
+    "          THEN SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END)"
+    "          ELSE COUNT(*)"
+    "     END AS cnt"
     "   FROM google_ads_campaign_day"
-    "   WHERE date BETWEEN :date_from AND :date_to AND asin IS NOT NULL AND spend_usd > 0"
+    "   WHERE date BETWEEN :date_from AND :date_to AND asin IS NOT NULL"
     "   GROUP BY asin, date"
     " ) cc ON g.asin = cc.asin AND g.date = cc.date"
 )
+
+
+def _cc_share(col: str) -> str:
+    """
+    SQL expression for the Archer metric (revenue / orders / units_sold) share
+    attributable to a single campaign row (alias g).
+
+    A row earns its share when:
+      - g.spend_usd > 0 (campaign was active that day), OR
+      - cnt_active = 0 (ALL campaigns for this ASIN+date were paused — fall back
+        equally so revenue is never silently dropped).
+
+    Campaigns with spend = 0 that have at least one active sibling receive $0.
+    """
+    return (
+        f"CASE WHEN g.spend_usd > 0 OR COALESCE(cc.cnt_active, 0) = 0"
+        f" THEN {col} / COALESCE(cc.cnt, 1) ELSE 0 END"
+    )
 
 # When filtering by country_code, restrict the Archer JOIN to the matching geo.
 # Without a filter join only US geo — all current campaigns are US campaigns and
@@ -91,11 +117,11 @@ def get_summary(db: Session, date_from: date, date_to: date, country_code: str =
     sql = text(
         "SELECT"
         "  COALESCE(SUM(g.spend_usd), 0)                                  AS spend_usd,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)          AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                AS revenue_usd,"
         "  COALESCE(SUM(g.clicks), 0)                                     AS clicks,"
         "  COALESCE(SUM(g.impressions), 0)                                AS impressions,"
-        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)          AS orders,"
-        "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)          AS units_sold"
+        f" COALESCE(SUM({_cc_share('a.orders')}), 0)                     AS orders,"
+        f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                 AS units_sold"
         " FROM google_ads_campaign_day g"
         + _archer_join(country_code)
         + _CC_SUBQUERY
@@ -153,27 +179,27 @@ def get_campaigns(
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)               AS revenue_usd,"
-        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)               AS orders,"
-        "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)               AS units_sold,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
+        f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                       AS units_sold,"
         "  CASE WHEN SUM(g.impressions) > 0"
         "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)         END AS ctr,"
         "  CASE WHEN SUM(g.clicks) > 0"
         "       THEN SUM(g.spend_usd) / SUM(g.clicks)                          END AS cpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.clicks)                                            END AS rpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN CAST(COALESCE(SUM(a.orders / COALESCE(cc.cnt, 1)), 0) AS FLOAT)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN CAST(COALESCE(SUM({_cc_share('a.orders')}), 0) AS FLOAT)"
         "            / SUM(g.clicks)                                            END AS conv_rate,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "    - SUM(g.spend_usd)                                                 AS profit,"
-        "  CASE WHEN SUM(g.spend_usd) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.spend_usd) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas,"
-        "  CASE WHEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0) > 0"
+        f" CASE WHEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0) > 0"
         "       THEN SUM(g.spend_usd)"
-        "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)   END AS acos,"
+        f"           / COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)          END AS acos,"
         "  ls.campaign_status                                                   AS current_status,"
         "  fs.first_seen                                                        AS first_seen,"
         "  MAX(g.campaign_type)                                                 AS campaign_type"
@@ -273,27 +299,27 @@ def get_campaign_dates(
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)               AS revenue_usd,"
-        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)               AS orders,"
-        "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)               AS units_sold,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
+        f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                       AS units_sold,"
         "  CASE WHEN SUM(g.impressions) > 0"
         "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)         END AS ctr,"
         "  CASE WHEN SUM(g.clicks) > 0"
         "       THEN SUM(g.spend_usd) / SUM(g.clicks)                          END AS cpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.clicks)                                            END AS rpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN CAST(COALESCE(SUM(a.orders / COALESCE(cc.cnt, 1)), 0) AS FLOAT)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN CAST(COALESCE(SUM({_cc_share('a.orders')}), 0) AS FLOAT)"
         "            / SUM(g.clicks)                                            END AS conv_rate,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "    - SUM(g.spend_usd)                                                 AS profit,"
-        "  CASE WHEN SUM(g.spend_usd) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.spend_usd) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas,"
-        "  CASE WHEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0) > 0"
+        f" CASE WHEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0) > 0"
         "       THEN SUM(g.spend_usd)"
-        "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)   END AS acos"
+        f"           / COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)          END AS acos"
         " FROM google_ads_campaign_day g"
         + _archer_join()
         + _CC_SUBQUERY
@@ -346,22 +372,22 @@ def get_timeseries(
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)               AS revenue_usd,"
-        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)               AS orders,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
         "  CASE WHEN SUM(g.impressions) > 0"
         "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)         END AS ctr,"
         "  CASE WHEN SUM(g.clicks) > 0"
         "       THEN SUM(g.spend_usd) / SUM(g.clicks)                          END AS cpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.clicks)                                            END AS rpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN CAST(COALESCE(SUM(a.orders / COALESCE(cc.cnt, 1)), 0) AS FLOAT)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN CAST(COALESCE(SUM({_cc_share('a.orders')}), 0) AS FLOAT)"
         "            / SUM(g.clicks)                                            END AS conv_rate,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "    - SUM(g.spend_usd)                                                 AS profit,"
-        "  CASE WHEN SUM(g.spend_usd) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.spend_usd) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas"
         " FROM google_ads_campaign_day g"
         + _archer_join()
@@ -464,27 +490,27 @@ def get_detailed_export(
         "  SUM(g.impressions)                                                    AS impressions,"
         "  SUM(g.clicks)                                                         AS clicks,"
         "  SUM(g.spend_usd)                                                      AS spend_usd,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)                AS revenue_usd,"
-        "  COALESCE(SUM(a.orders      / COALESCE(cc.cnt, 1)), 0)                AS orders,"
-        "  COALESCE(SUM(a.units_sold  / COALESCE(cc.cnt, 1)), 0)                AS units_sold,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                       AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.orders')}), 0)                            AS orders,"
+        f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                        AS units_sold,"
         "  CASE WHEN SUM(g.impressions) > 0"
         "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)          END AS ctr,"
         "  CASE WHEN SUM(g.clicks) > 0"
         "       THEN SUM(g.spend_usd) / SUM(g.clicks)                           END AS cpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.clicks)                                             END AS rpc,"
-        "  CASE WHEN SUM(g.clicks) > 0"
-        "       THEN CAST(COALESCE(SUM(a.orders / COALESCE(cc.cnt, 1)), 0) AS FLOAT)"
+        f" CASE WHEN SUM(g.clicks) > 0"
+        f"      THEN CAST(COALESCE(SUM({_cc_share('a.orders')}), 0) AS FLOAT)"
         "            / SUM(g.clicks)                                             END AS conv_rate,"
-        "  COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "    - SUM(g.spend_usd)                                                  AS profit,"
-        "  CASE WHEN SUM(g.spend_usd) > 0"
-        "       THEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)"
+        f" CASE WHEN SUM(g.spend_usd) > 0"
+        f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                          END AS roas,"
-        "  CASE WHEN COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0) > 0"
+        f" CASE WHEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0) > 0"
         "       THEN SUM(g.spend_usd)"
-        "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)    END AS acos"
+        f"           / COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)           END AS acos"
         " FROM google_ads_campaign_day g"
         + _archer_join()
         + _CC_SUBQUERY
