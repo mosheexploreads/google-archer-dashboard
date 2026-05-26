@@ -173,8 +173,8 @@ def get_campaigns(
         "SELECT"
         "  g.campaign_id,"
         "  COALESCE(ln.latest_name, g.campaign_name) AS campaign_name,"
-        "  g.asin,"
-        "  COALESCE(g.country_code, 'US')                                       AS country_code,"
+        "  MAX(g.asin)                                                           AS asin,"
+        "  COALESCE(MAX(g.country_code), 'US')                                  AS country_code,"
         "  MAX(a.product_name)                                                  AS product_name,"
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
@@ -238,7 +238,7 @@ def get_campaigns(
         "   AND (:status   = '' OR COALESCE(ls.campaign_status, '') = :status)"
         "   AND (:campaign_type_filter = '' OR COALESCE(g.campaign_type, 'brand') = :campaign_type_filter)"
         f"  {country_filter}"
-        " GROUP BY g.campaign_id, g.asin"
+        " GROUP BY g.campaign_id"
         f" ORDER BY {sort_col} {dir_sql}"
     )
 
