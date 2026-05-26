@@ -65,6 +65,8 @@ export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, 
           <td className={`${tdBase} text-right`}>{fmtNumber(row.orders)}</td>
           <td className={`${tdBase} text-right`}>{fmtPct(row.conv_rate)}</td>
           <td className={`${tdBase} text-right`}>{fmtUSD(row.revenue_usd)}</td>
+          {/* Total Sales */}
+          <td className={`${tdBase} text-right`}>{fmtUSD(row.total_sales_usd || null)}</td>
           {/* AOV */}
           <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
           <td className={`${tdBase} text-right`}>{fmtRPC(row.rpc)}</td>

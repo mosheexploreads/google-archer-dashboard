@@ -20,6 +20,7 @@ export function DateBreakdownTable({ points, loading }: Props) {
   const totSpend       = points.reduce((s, r) => s + r.spend_usd, 0);
   const totOrders      = points.reduce((s, r) => s + r.orders, 0);
   const totRevenue     = points.reduce((s, r) => s + r.revenue_usd, 0);
+  const totTotalSales  = points.reduce((s, r) => s + (r.total_sales_usd ?? 0), 0);
   const totProfit      = totRevenue - totSpend;
   const totCtr         = totImpressions > 0 ? totClicks / totImpressions : null;
   const totCpc         = totClicks > 0 ? totSpend / totClicks : null;
@@ -54,6 +55,7 @@ export function DateBreakdownTable({ points, loading }: Props) {
               <th className={th}>Orders</th>
               <th className={th}>Conv. Rate</th>
               <th className={th}>Revenue</th>
+              <th className={th}>Total Sales</th>
               <th className={th}>AOV</th>
               <th className={th}>RPC</th>
               <th className={th}>Profit</th>
@@ -73,6 +75,7 @@ export function DateBreakdownTable({ points, loading }: Props) {
                 <td className={td}>{fmtNumber(row.orders)}</td>
                 <td className={td}>{fmtPct(row.conv_rate)}</td>
                 <td className={td}>{fmtUSD(row.revenue_usd)}</td>
+                <td className={td}>{fmtUSD(row.total_sales_usd || null)}</td>
                 <td className={td}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
                 <td className={td}>{fmtRPC(row.rpc)}</td>
                 <td className={`${td} font-medium ${row.profit > 0 ? "text-green-600" : row.profit < 0 ? "text-red-500" : ""}`}>
@@ -96,6 +99,7 @@ export function DateBreakdownTable({ points, loading }: Props) {
               <td className={tfBase}>{fmtNumber(totOrders)}</td>
               <td className={tfBase}>{fmtPct(totConvRate)}</td>
               <td className={tfBase}>{fmtUSD(totRevenue)}</td>
+              <td className={tfBase}>{fmtUSD(totTotalSales || null)}</td>
               <td className={tfBase}>{fmtUSD(totAov)}</td>
               <td className={tfBase}>{fmtRPC(totRpc)}</td>
               <td className={`${tfBase} ${totProfit > 0 ? "text-green-600" : totProfit < 0 ? "text-red-500" : ""}`}>{fmtUSD(totProfit)}</td>

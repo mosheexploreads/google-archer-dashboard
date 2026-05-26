@@ -148,6 +148,19 @@ def _migrate_campaign_job_campaign_type(engine):
             conn.execute(text("ALTER TABLE campaign_job ADD COLUMN campaign_type VARCHAR DEFAULT 'brand'"))
 
 
+def _migrate_archer_total_sales_usd(engine):
+    """Add total_sales_usd column to archer_product_day."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "archer_product_day" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("archer_product_day")}
+    if "total_sales_usd" not in existing_cols:
+        logger.info("Adding total_sales_usd column to archer_product_day...")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE archer_product_day ADD COLUMN total_sales_usd REAL DEFAULT 0.0"))
+
+
 def _migrate_attribution_link_cache_campaign_type(engine):
     """
     Rebuild attribution_link_cache with composite PK (asin, campaign_type).
@@ -199,6 +212,7 @@ async def lifespan(app: FastAPI):
     _migrate_campaign_job_campaign_type(engine)
     _migrate_attribution_link_cache_campaign_type(engine)
     _ensure_test_campaign_columns(engine)
+    _migrate_archer_total_sales_usd(engine)
 
     Base.metadata.create_all(bind=engine)
 

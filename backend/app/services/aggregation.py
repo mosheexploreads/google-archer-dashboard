@@ -118,6 +118,7 @@ def get_summary(db: Session, date_from: date, date_to: date, country_code: str =
         "SELECT"
         "  COALESCE(SUM(g.spend_usd), 0)                                  AS spend_usd,"
         f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.total_sales_usd')}), 0)           AS total_sales_usd,"
         "  COALESCE(SUM(g.clicks), 0)                                     AS clicks,"
         "  COALESCE(SUM(g.impressions), 0)                                AS impressions,"
         f" COALESCE(SUM({_cc_share('a.orders')}), 0)                     AS orders,"
@@ -137,6 +138,7 @@ def get_summary(db: Session, date_from: date, date_to: date, country_code: str =
     return SummaryResponse(
         spend_usd=spend,
         revenue_usd=revenue,
+        total_sales_usd=float(row.total_sales_usd),
         roas=revenue / spend if spend > 0 else None,
         rpc=revenue / clicks if clicks > 0 else None,
         acos=spend / revenue if revenue > 0 else None,
@@ -180,6 +182,7 @@ def get_campaigns(
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
         f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.total_sales_usd')}), 0)                 AS total_sales_usd,"
         f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
         f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                       AS units_sold,"
         "  CASE WHEN SUM(g.impressions) > 0"
@@ -269,6 +272,7 @@ def get_campaigns(
             orders=int(r.orders or 0),
             conv_rate=_safe_float(r.conv_rate),
             revenue_usd=float(r.revenue_usd or 0),
+            total_sales_usd=float(r.total_sales_usd or 0),
             rpc=_safe_float(r.rpc),
             profit=float(r.profit or 0),
             roas=_safe_float(r.roas),
@@ -300,6 +304,7 @@ def get_campaign_dates(
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
         f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.total_sales_usd')}), 0)                 AS total_sales_usd,"
         f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
         f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                       AS units_sold,"
         "  CASE WHEN SUM(g.impressions) > 0"
@@ -346,6 +351,7 @@ def get_campaign_dates(
             orders=int(r.orders or 0),
             conv_rate=_safe_float(r.conv_rate),
             revenue_usd=float(r.revenue_usd or 0),
+            total_sales_usd=float(r.total_sales_usd or 0),
             rpc=_safe_float(r.rpc),
             profit=float(r.profit or 0),
             roas=_safe_float(r.roas),
@@ -373,6 +379,7 @@ def get_timeseries(
         "  SUM(g.clicks)                                                        AS clicks,"
         "  SUM(g.spend_usd)                                                     AS spend_usd,"
         f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)                      AS revenue_usd,"
+        f" COALESCE(SUM({_cc_share('a.total_sales_usd')}), 0)                 AS total_sales_usd,"
         f" COALESCE(SUM({_cc_share('a.orders')}), 0)                           AS orders,"
         "  CASE WHEN SUM(g.impressions) > 0"
         "       THEN CAST(SUM(g.clicks) AS FLOAT) / SUM(g.impressions)         END AS ctr,"
@@ -410,6 +417,7 @@ def get_timeseries(
             orders=int(r.orders or 0),
             conv_rate=_safe_float(r.conv_rate),
             revenue_usd=float(r.revenue_usd or 0),
+            total_sales_usd=float(r.total_sales_usd or 0),
             rpc=_safe_float(r.rpc),
             profit=float(r.profit or 0),
             roas=_safe_float(r.roas),

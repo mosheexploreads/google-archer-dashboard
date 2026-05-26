@@ -16,22 +16,27 @@ logger = logging.getLogger(__name__)
 
 # Canonical field → list of possible key names in the API response
 _FIELD_ALIASES: Dict[str, List[str]] = {
-    "asin":         ["asin", "ASIN", "product_asin", "item_asin"],
-    "product_name": ["product_name", "title", "name", "product_title", "item_name", "Product_Name"],
-    "revenue_usd":  [
+    "asin":             ["asin", "ASIN", "product_asin", "item_asin"],
+    "product_name":     ["product_name", "title", "name", "product_title", "item_name", "Product_Name"],
+    "revenue_usd":      [
         "commission_amount",
         "Total_Commission", "total_commission",
         "earnings", "revenue_usd", "revenue",
     ],
-    "orders":       [
+    "total_sales_usd":  [
+        "total_sales", "Total_Sales",
+        "attributed_sales", "total_attributed_sales",
+        "gross_sales", "sales_usd",
+    ],
+    "orders":           [
         "total_purchases", "Attributed_Total_Purchases", "attributed_total_purchases",
         "orders", "order_count", "total_orders", "purchases",
     ],
-    "units_sold":   [
+    "units_sold":       [
         "total_units_sold", "Total_Units_Sold",
         "units_sold", "units", "quantity", "qty",
     ],
-    "date":         ["date", "Date", "report_date", "day", "order_date", "Day"],
+    "date":             ["date", "Date", "report_date", "day", "order_date", "Day"],
 }
 
 
@@ -137,12 +142,13 @@ class ArcherClient:
         normalised = []
         for row in all_rows:
             normalised.append({
-                "asin":         _resolve_field(row, "asin"),
-                "product_name": _resolve_field(row, "product_name"),
-                "revenue_usd":  float(_resolve_field(row, "revenue_usd") or 0),
-                "orders":       int(_resolve_field(row, "orders") or 0),
-                "units_sold":   int(_resolve_field(row, "units_sold") or 0),
-                "date":         _resolve_field(row, "date"),
+                "asin":             _resolve_field(row, "asin"),
+                "product_name":     _resolve_field(row, "product_name"),
+                "revenue_usd":      float(_resolve_field(row, "revenue_usd") or 0),
+                "total_sales_usd":  float(_resolve_field(row, "total_sales_usd") or 0),
+                "orders":           int(_resolve_field(row, "orders") or 0),
+                "units_sold":       int(_resolve_field(row, "units_sold") or 0),
+                "date":             _resolve_field(row, "date"),
             })
         return normalised
 

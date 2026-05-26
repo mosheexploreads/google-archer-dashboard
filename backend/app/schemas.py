@@ -9,6 +9,7 @@ from datetime import date, datetime
 class SummaryResponse(BaseModel):
     spend_usd: float
     revenue_usd: float
+    total_sales_usd: float = 0.0
     roas: Optional[float]
     rpc: Optional[float]
     acos: Optional[float]
@@ -42,6 +43,7 @@ class CampaignRow(BaseModel):
     # kept for filtering/export but not displayed in primary columns
     acos: Optional[float]
     units_sold: int
+    total_sales_usd: float = 0.0
     current_status: Optional[str] = None
     first_seen: Optional[str] = None
     campaign_type: Optional[str] = None  # "brand" | "amazon" | None (legacy)
@@ -64,6 +66,7 @@ class DateRow(BaseModel):
     orders: int
     conv_rate: Optional[float]
     revenue_usd: float
+    total_sales_usd: float = 0.0
     rpc: Optional[float]
     profit: float
     roas: Optional[float]
@@ -88,6 +91,7 @@ class TimeseriesPoint(BaseModel):
     orders: int
     conv_rate: Optional[float]
     revenue_usd: float
+    total_sales_usd: float = 0.0
     rpc: Optional[float]
     profit: float
     roas: Optional[float]

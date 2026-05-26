@@ -51,6 +51,7 @@ export interface CampaignRow {
   orders: number;
   conv_rate: number | null;
   revenue_usd: number;
+  total_sales_usd: number;
   rpc: number | null;
   profit: number;
   roas: number | null;
@@ -78,6 +79,7 @@ export interface DateRow {
   orders: number;
   conv_rate: number | null;
   revenue_usd: number;
+  total_sales_usd: number;
   rpc: number | null;
   profit: number;
   roas: number | null;
@@ -102,6 +104,7 @@ export interface TimeseriesPoint {
   orders: number;
   conv_rate: number | null;
   revenue_usd: number;
+  total_sales_usd: number;
   rpc: number | null;
   profit: number;
   roas: number | null;

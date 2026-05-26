@@ -31,7 +31,7 @@ interface Props {
   dateDataRef: React.MutableRefObject<Record<string, DateRow[]>>;
 }
 
-const COL_SPAN = 19; // toggle + Campaign + Country + Status + Type + Age + 13 metric columns
+const COL_SPAN = 20; // toggle + Campaign + Country + Status + Type + Age + 14 metric columns
 
 function ageDays(firstSeen: string | null): number | null {
   if (!firstSeen) return null;
@@ -127,6 +127,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
   const totSpend       = filtered.reduce((s, r) => s + r.spend_usd, 0);
   const totOrders      = filtered.reduce((s, r) => s + r.orders, 0);
   const totRevenue     = filtered.reduce((s, r) => s + r.revenue_usd, 0);
+  const totTotalSales  = filtered.reduce((s, r) => s + (r.total_sales_usd ?? 0), 0);
   const totProfit      = totRevenue - totSpend;
   const totCtr         = totImpressions > 0 ? totClicks / totImpressions : null;
   const totCpc         = totClicks > 0 ? totSpend / totClicks : null;
@@ -210,6 +211,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={`${thSort} text-right`} style={{ minWidth: 66 }} onClick={() => toggleSort("revenue_usd")}>
                 Revenue <SortIcon col="revenue_usd" />
               </th>
+              <th className={`${thBase} text-right`} style={{ minWidth: 76 }}>Total Sales</th>
               <th className={`${thBase} text-right`} style={{ minWidth: 56 }}>AOV</th>
               <th className={`${thSort} text-right`} style={{ minWidth: 52 }} onClick={() => toggleSort("rpc")}>
                 RPC <SortIcon col="rpc" />
@@ -295,6 +297,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                     <td className={`${tdBase} text-right`}>{fmtNumber(row.orders)}</td>
                     <td className={`${tdBase} text-right`}>{fmtPct(row.conv_rate)}</td>
                     <td className={`${tdBase} text-right`}>{fmtUSD(row.revenue_usd)}</td>
+                    <td className={`${tdBase} text-right`}>{fmtUSD(row.total_sales_usd || null)}</td>
                     <td className={`${tdBase} text-right`}>{fmtUSD(row.orders > 0 ? row.revenue_usd / row.orders : null)}</td>
                     <td className={`${tdBase} text-right`}>{fmtRPC(row.rpc)}</td>
                     <td className={`${tdBase} text-right font-medium ${row.profit > 0 ? "text-green-600" : row.profit < 0 ? "text-red-500" : ""}`}>
@@ -341,6 +344,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                 <td className={tfBase}>{fmtNumber(totOrders)}</td>
                 <td className={tfBase}>{fmtPct(totConvRate)}</td>
                 <td className={tfBase}>{fmtUSD(totRevenue)}</td>
+                <td className={tfBase}>{fmtUSD(totTotalSales || null)}</td>
                 <td className={tfBase}>{fmtUSD(totAov)}</td>
                 <td className={tfBase}>{fmtRPC(totRpc)}</td>
                 <td className={`${tfBase} ${totProfit > 0 ? "text-green-600" : totProfit < 0 ? "text-red-500" : ""}`}>{fmtUSD(totProfit)}</td>

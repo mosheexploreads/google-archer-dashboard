@@ -32,9 +32,10 @@ class ArcherProductDay(Base):
     geo = Column(String, primary_key=True, nullable=False, default="US")  # US | EU | FE | CA
     product_name = Column(String, nullable=True)
 
-    revenue_usd = Column(Float, default=0.0)
-    orders = Column(Integer, default=0)
-    units_sold = Column(Integer, default=0)
+    revenue_usd     = Column(Float, default=0.0)
+    total_sales_usd = Column(Float, default=0.0)  # Amazon gross sales (not just commission)
+    orders          = Column(Integer, default=0)
+    units_sold      = Column(Integer, default=0)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

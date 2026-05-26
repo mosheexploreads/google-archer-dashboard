@@ -151,18 +151,20 @@ def sync_archer() -> int:
                 key = (row["asin"].upper(), parsed_date, geo)
                 if key not in aggregated:
                     aggregated[key] = {
-                        "asin":         row["asin"].upper(),
-                        "date":         parsed_date,
-                        "geo":          geo,
-                        "product_name": row.get("product_name"),
-                        "revenue_usd":  row["revenue_usd"],
-                        "orders":       row["orders"],
-                        "units_sold":   row["units_sold"],
+                        "asin":             row["asin"].upper(),
+                        "date":             parsed_date,
+                        "geo":              geo,
+                        "product_name":     row.get("product_name"),
+                        "revenue_usd":      row["revenue_usd"],
+                        "total_sales_usd":  row.get("total_sales_usd", 0.0),
+                        "orders":           row["orders"],
+                        "units_sold":       row["units_sold"],
                     }
                 else:
-                    aggregated[key]["revenue_usd"] += row["revenue_usd"]
-                    aggregated[key]["orders"]      += row["orders"]
-                    aggregated[key]["units_sold"]  += row["units_sold"]
+                    aggregated[key]["revenue_usd"]     += row["revenue_usd"]
+                    aggregated[key]["total_sales_usd"] += row.get("total_sales_usd", 0.0)
+                    aggregated[key]["orders"]           += row["orders"]
+                    aggregated[key]["units_sold"]       += row["units_sold"]
 
             count = 0
             for agg in aggregated.values():
@@ -170,11 +172,12 @@ def sync_archer() -> int:
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["asin", "date", "geo"],
                     set_={
-                        "product_name": stmt.excluded.product_name,
-                        "revenue_usd":  stmt.excluded.revenue_usd,
-                        "orders":       stmt.excluded.orders,
-                        "units_sold":   stmt.excluded.units_sold,
-                        "updated_at":   datetime.utcnow(),
+                        "product_name":     stmt.excluded.product_name,
+                        "revenue_usd":      stmt.excluded.revenue_usd,
+                        "total_sales_usd":  stmt.excluded.total_sales_usd,
+                        "orders":           stmt.excluded.orders,
+                        "units_sold":       stmt.excluded.units_sold,
+                        "updated_at":       datetime.utcnow(),
                     },
                 )
                 db.execute(stmt)
