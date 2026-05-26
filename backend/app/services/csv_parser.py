@@ -116,13 +116,39 @@ def _find_header_row(rows: list[list[str]]) -> Optional[int]:
     return None
 
 
+def _decode_content(content: bytes) -> tuple[str, str]:
+    """
+    Detect encoding (UTF-16 LE/BE or UTF-8) and return (decoded_text, delimiter).
+    Google Ads Editor bulk exports are UTF-16 LE TSV.
+    Google Ads UI reports are UTF-8 CSV.
+    Returns (text, delimiter) where delimiter is '\t' or ','.
+    """
+    if content[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        # UTF-16 with BOM (Google Ads Editor export)
+        text = content.decode("utf-16")
+        delim = "\t"
+    elif content[:3] == b"\xef\xbb\xbf":
+        # UTF-8 with BOM
+        text = content.decode("utf-8-sig")
+        # Peek at first real line to detect delimiter
+        first_line = text.split("\n")[0] if "\n" in text else text[:500]
+        delim = "\t" if first_line.count("\t") > first_line.count(",") else ","
+    else:
+        text = content.decode("utf-8", errors="replace")
+        first_line = text.split("\n")[0] if "\n" in text else text[:500]
+        delim = "\t" if first_line.count("\t") > first_line.count(",") else ","
+    return text, delim
+
+
 def parse_google_ads_csv(content: bytes) -> list[dict]:
     """
     Parse a Google Ads CSV report. Returns a list of dicts ready for DB upsert.
+    Handles both UTF-8 (Google Ads UI) and UTF-16 (Google Ads Editor) exports,
+    and both comma-separated and tab-separated formats.
     Raises ValueError with a descriptive message on bad input.
     """
-    text = content.decode("utf-8-sig", errors="replace")  # handle BOM
-    reader = csv.reader(io.StringIO(text))
+    text, delim = _decode_content(content)
+    reader = csv.reader(io.StringIO(text), delimiter=delim)
     rows = list(reader)
 
     if not rows:
