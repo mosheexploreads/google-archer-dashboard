@@ -16,6 +16,7 @@ export interface SyncStatus {
   archer: SyncSourceStatus;
   next_run: string | null;
   is_syncing: boolean;
+  google_ads_data_through?: string | null;  // latest date in google_ads_campaign_day
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

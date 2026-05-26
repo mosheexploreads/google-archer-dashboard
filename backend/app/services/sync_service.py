@@ -349,14 +349,11 @@ def run_full_sync():
         return
     _is_running = True
     try:
-        sync_google_ads()
-    except Exception:
-        pass
-    try:
+        # Google Ads data arrives via CSV upload — no API sync here.
+        # sync_product_catalog is NOT called here — catalog tab is hidden and
+        # the 223k-row table was filling the Railway volume.
         sync_archer()
     except Exception:
-        pass
-    # sync_product_catalog is NOT called here — catalog tab is hidden and
-    # the 223k-row table was filling the Railway volume.
+        logger.exception("sync_archer failed in run_full_sync")
     finally:
         _is_running = False

@@ -123,6 +123,7 @@ class SyncStatus(BaseModel):
     archer: SyncSourceStatus
     next_run: Optional[datetime]
     is_syncing: bool = False
+    google_ads_data_through: Optional[str] = None  # latest date in google_ads_campaign_day
 
 
 class TriggerResponse(BaseModel):

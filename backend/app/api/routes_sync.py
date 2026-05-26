@@ -26,13 +26,21 @@ def _latest_sync(db: Session, source: str) -> SyncSourceStatus:
     )
 
 
+def _max_google_ads_date(db: Session) -> str | None:
+    """Return the latest date present in google_ads_campaign_day, or None."""
+    row = db.execute(text("SELECT MAX(date) AS d FROM google_ads_campaign_day")).fetchone()
+    return str(row.d) if row and row.d else None
+
+
 @router.get("/status", response_model=SyncStatus)
 def sync_status(db: Session = Depends(get_db)):
     return SyncStatus(
-        google_ads=_latest_sync(db, "google_ads"),
+        # google_ads field tracks CSV uploads, not API (API path is disabled).
+        google_ads=_latest_sync(db, "csv_upload"),
         archer=_latest_sync(db, "archer"),
         next_run=get_next_run(),
         is_syncing=is_running(),
+        google_ads_data_through=_max_google_ads_date(db),
     )
 
 
