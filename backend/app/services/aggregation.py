@@ -543,3 +543,66 @@ def get_detailed_export(
         )
         for r in rows
     ]
+
+
+# ── Revenue diagnostic ────────────────────────────────────────────────────────
+
+def get_revenue_debug(db, date_from, date_to):
+    """
+    Per-ASIN breakdown: archer DB revenue vs dashboard-attributed revenue.
+    Call GET /api/dashboard/debug/revenue?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+    """
+    sql = text(
+        "SELECT"
+        "  g.asin,"
+        "  COUNT(DISTINCT g.campaign_id)                     AS campaigns,"
+        "  MAX(cc.cnt_active)                                AS cc_active,"
+        "  MAX(cc.cnt)                                       AS cc_cnt,"
+        f" COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)   AS attributed,"
+        "  SUM(g.spend_usd)                                  AS spend"
+        " FROM google_ads_campaign_day g"
+        + _archer_join()
+        + _CC_SUBQUERY
+        + " WHERE g.date BETWEEN :date_from AND :date_to AND g.asin IS NOT NULL"
+        " GROUP BY g.asin"
+        " ORDER BY attributed DESC"
+    )
+    rows = db.execute(sql, {"date_from": date_from, "date_to": date_to}).fetchall()
+
+    archer_sql = text(
+        "SELECT asin, SUM(revenue_usd) AS total"
+        " FROM archer_product_day"
+        " WHERE date BETWEEN :date_from AND :date_to AND geo = 'US'"
+        " GROUP BY asin"
+    )
+    archer_rows = db.execute(archer_sql, {"date_from": date_from, "date_to": date_to}).fetchall()
+    archer_by_asin = {r.asin: float(r.total) for r in archer_rows}
+
+    items = []
+    for r in rows:
+        asin = r.asin
+        attributed = float(r.attributed or 0)
+        archer_rev = archer_by_asin.get(asin, 0.0)
+        items.append({
+            "asin":          asin,
+            "campaigns":     int(r.campaigns or 0),
+            "cc_active":     int(r.cc_active or 0),
+            "cc_cnt":        int(r.cc_cnt or 0),
+            "archer_db_rev": round(archer_rev, 2),
+            "dashboard_rev": round(attributed, 2),
+            "diff":          round(attributed - archer_rev, 2),
+            "spend":         round(float(r.spend or 0), 2),
+        })
+
+    total_attributed = sum(i["dashboard_rev"] for i in items)
+    total_archer = sum(archer_by_asin.values())
+
+    return {
+        "date_from":       str(date_from),
+        "date_to":         str(date_to),
+        "dashboard_total": round(total_attributed, 2),
+        "archer_db_total": round(total_archer, 2),
+        "difference":      round(total_attributed - total_archer, 2),
+        "note":            "diff>0 = over-counted; look for asins with large positive diff",
+        "asins":           sorted(items, key=lambda x: abs(x["diff"]), reverse=True),
+    }

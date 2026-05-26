@@ -10,7 +10,7 @@ from ..schemas import (
 )
 from ..services.aggregation import (
     get_summary, get_campaigns, get_campaign_dates, get_timeseries, get_warnings,
-    get_detailed_export,
+    get_detailed_export, get_revenue_debug,
 )
 from ..utils.date_utils import yesterday, days_ago
 
@@ -91,6 +91,21 @@ def dashboard_timeseries(
 @router.get("/warnings", response_model=WarningsResponse)
 def dashboard_warnings(db: Session = Depends(get_db)):
     return WarningsResponse(warnings=get_warnings(db))
+
+
+@router.get("/debug/revenue")
+def debug_revenue(
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Diagnostic: per-ASIN revenue breakdown for a date range.
+    Shows archer DB total, CC count, and dashboard-attributed total so you can
+    spot which ASIN is being double-counted.
+    """
+    date_from, date_to = _default_dates(date_from, date_to)
+    return get_revenue_debug(db, date_from, date_to)
 
 
 @router.get("/export/detailed", response_model=DetailedExportResponse)
