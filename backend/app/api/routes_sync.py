@@ -50,6 +50,79 @@ def trigger_sync():
     return TriggerResponse(message="Sync triggered. Check /api/sync/status for progress.")
 
 
+@router.get("/debug/archer")
+def debug_archer(
+    date_from: str = "2026-05-25",
+    date_to: str = "2026-05-25",
+    db: Session = Depends(get_db),
+):
+    """
+    Call Archer /product_reports_all directly and return what we get.
+    Also shows what's stored in the DB for the same date range.
+    Use to diagnose sync vs UI discrepancies.
+    """
+    from datetime import datetime
+    from ..services.archer_client import ArcherClient
+    from ..services.sync_service import _parse_archer_date
+
+    d_from = datetime.strptime(date_from, "%Y-%m-%d").date()
+    d_to   = datetime.strptime(date_to,   "%Y-%m-%d").date()
+
+    # 1. Call Archer API directly
+    try:
+        client = ArcherClient()
+        raw = client.fetch_earnings(d_from, d_to, geo=None)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    # Aggregate the same way sync_archer does
+    aggregated: dict = {}
+    skipped = 0
+    for row in raw:
+        parsed_date = _parse_archer_date(row.get("date"))
+        if not row.get("asin") or parsed_date is None:
+            skipped += 1
+            continue
+        key = (row["asin"].upper(), str(parsed_date))
+        if key not in aggregated:
+            aggregated[key] = {"asin": row["asin"].upper(), "date": str(parsed_date),
+                               "revenue_usd": 0.0, "orders": 0, "units_sold": 0}
+        aggregated[key]["revenue_usd"] += row["revenue_usd"]
+        aggregated[key]["orders"]      += row["orders"]
+        aggregated[key]["units_sold"]  += row["units_sold"]
+
+    api_rows = sorted(aggregated.values(), key=lambda r: -r["revenue_usd"])
+    api_total = sum(r["revenue_usd"] for r in api_rows)
+
+    # 2. What's currently in the DB for the same range
+    db_rows = db.execute(text(
+        "SELECT asin, SUM(revenue_usd) AS rev, SUM(orders) AS ord "
+        "FROM archer_product_day "
+        "WHERE date BETWEEN :df AND :dt AND geo = 'US' "
+        "GROUP BY asin ORDER BY rev DESC"
+    ), {"df": date_from, "dt": date_to}).fetchall()
+
+    db_total = sum(r.rev for r in db_rows)
+
+    return {
+        "date_range": f"{date_from} → {date_to}",
+        "archer_api": {
+            "total_raw_rows":  len(raw),
+            "skipped_rows":    skipped,
+            "unique_asins":    len(aggregated),
+            "total_revenue":   round(api_total, 2),
+            "rows":            api_rows[:20],  # top 20
+        },
+        "db": {
+            "unique_asins":  len(db_rows),
+            "total_revenue": round(db_total, 2),
+            "rows":          [{"asin": r.asin, "revenue_usd": round(r.rev, 2), "orders": r.ord}
+                              for r in db_rows[:20]],
+        },
+        "gap": round(api_total - db_total, 2),
+    }
+
+
 @router.post("/check-products", response_model=TriggerResponse)
 def trigger_product_check():
     """Manually trigger ASIN removal verification against Archer API."""
