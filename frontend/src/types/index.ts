@@ -57,6 +57,7 @@ export interface CampaignRow {
   units_sold: number;
   current_status: string | null;
   first_seen: string | null;
+  campaign_type: string | null;  // "brand" | "amazon" | null (legacy)
 }
 
 export interface CampaignsData {
@@ -239,6 +240,7 @@ export interface CampaignDraftsData {
 export interface CampaignCreatorJob {
   job_id: string;
   status: "pending" | "running" | "completed" | "partial" | "failed";
+  campaign_type: string;  // "brand" | "amazon"
   total: number;
   processed: number;
   failed_count: number;

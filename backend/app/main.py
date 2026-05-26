@@ -122,6 +122,64 @@ def _migrate_google_ads_country_code(engine):
         conn.execute(text("ALTER TABLE google_ads_campaign_day ADD COLUMN country_code VARCHAR"))
 
 
+def _migrate_google_ads_campaign_type(engine):
+    """Add campaign_type column to google_ads_campaign_day (nullable, 'brand'|'amazon')."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "google_ads_campaign_day" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("google_ads_campaign_day")}
+    if "campaign_type" not in existing_cols:
+        logger.info("Adding campaign_type column to google_ads_campaign_day...")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE google_ads_campaign_day ADD COLUMN campaign_type VARCHAR"))
+
+
+def _migrate_campaign_job_campaign_type(engine):
+    """Add campaign_type column to campaign_job (defaults to 'brand')."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "campaign_job" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("campaign_job")}
+    if "campaign_type" not in existing_cols:
+        logger.info("Adding campaign_type column to campaign_job...")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE campaign_job ADD COLUMN campaign_type VARCHAR DEFAULT 'brand'"))
+
+
+def _migrate_attribution_link_cache_campaign_type(engine):
+    """
+    Rebuild attribution_link_cache with composite PK (asin, campaign_type).
+    Old PK was (asin) alone. Existing rows are migrated as campaign_type='brand'.
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "attribution_link_cache" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("attribution_link_cache")}
+    if "campaign_type" in existing_cols:
+        return
+    logger.info("Migrating attribution_link_cache: adding campaign_type to PK...")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE attribution_link_cache_new ("
+            "  asin          TEXT NOT NULL,"
+            "  campaign_type TEXT NOT NULL DEFAULT 'brand',"
+            "  url           TEXT NOT NULL,"
+            "  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  PRIMARY KEY (asin, campaign_type)"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO attribution_link_cache_new (asin, campaign_type, url, created_at) "
+            "SELECT asin, 'brand', url, created_at FROM attribution_link_cache"
+        ))
+        conn.execute(text("DROP TABLE attribution_link_cache"))
+        conn.execute(text("ALTER TABLE attribution_link_cache_new RENAME TO attribution_link_cache"))
+    logger.info("attribution_link_cache migration complete.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ────────────────────────────────────────────────────────────────
@@ -137,6 +195,9 @@ async def lifespan(app: FastAPI):
     # Run migrations before create_all so existing tables are updated first
     _migrate_archer_product_day(engine)
     _migrate_google_ads_country_code(engine)
+    _migrate_google_ads_campaign_type(engine)
+    _migrate_campaign_job_campaign_type(engine)
+    _migrate_attribution_link_cache_campaign_type(engine)
     _ensure_test_campaign_columns(engine)
 
     Base.metadata.create_all(bind=engine)

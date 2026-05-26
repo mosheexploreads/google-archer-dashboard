@@ -17,6 +17,7 @@ class GoogleAdsCampaignDay(Base):
     clicks = Column(Integer, default=0)
     spend_usd = Column(Float, default=0.0)
     campaign_status = Column(String, nullable=True)
+    campaign_type = Column(String, nullable=True)  # "brand" | "amazon" | None (legacy)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -112,10 +113,11 @@ class ArcherAsinStatus(Base):
 
 
 class AttributionLinkCache(Base):
-    """Cached Archer attribution links keyed by ASIN."""
+    """Cached Archer attribution links keyed by (asin, campaign_type)."""
     __tablename__ = "attribution_link_cache"
 
     asin = Column(String, primary_key=True, nullable=False)
+    campaign_type = Column(String, primary_key=True, nullable=False, default="brand")  # "brand" | "amazon"
     url = Column(String, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -126,6 +128,7 @@ class CampaignJob(Base):
 
     id = Column(String, primary_key=True, nullable=False)  # UUID
     status = Column(String, nullable=False, default="pending")  # pending|running|completed|partial|failed
+    campaign_type = Column(String, nullable=False, default="brand")  # "brand" | "amazon"
     total = Column(Integer, default=0)
     processed = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)

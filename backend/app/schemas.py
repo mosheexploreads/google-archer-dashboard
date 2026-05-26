@@ -44,6 +44,7 @@ class CampaignRow(BaseModel):
     units_sold: int
     current_status: Optional[str] = None
     first_seen: Optional[str] = None
+    campaign_type: Optional[str] = None  # "brand" | "amazon" | None (legacy)
 
 
 class CampaignsResponse(BaseModel):
@@ -271,11 +272,13 @@ class GenerateDraftsResponse(BaseModel):
 
 class CampaignCreatorStartRequest(BaseModel):
     items: List[dict]  # [{asin: str, product_name: str | None}, ...]
+    campaign_type: str = "brand"  # "brand" | "amazon"
 
 
 class CampaignCreatorJobStatus(BaseModel):
     job_id: str
     status: str   # pending | running | completed | partial | failed
+    campaign_type: str = "brand"  # "brand" | "amazon"
     total: int
     processed: int
     failed_count: int

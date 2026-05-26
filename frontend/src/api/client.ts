@@ -38,7 +38,8 @@ export async function fetchCampaigns(
   asin = "",
   campaign = "",
   status = "",
-  countryCode = ""
+  countryCode = "",
+  campaignType = ""
 ): Promise<CampaignsData> {
   const { data } = await api.get("/dashboard/campaigns", {
     params: {
@@ -50,6 +51,7 @@ export async function fetchCampaigns(
       campaign,
       status,
       country_code: countryCode,
+      campaign_type: campaignType,
     },
   });
   return data;
@@ -177,9 +179,10 @@ export function campaignExportUrl(): string {
 // ── Campaign Creator ──────────────────────────────────────────────────────────
 
 export async function startCampaignJob(
-  items: Array<{ asin: string; product_name: string | null }>
+  items: Array<{ asin: string; product_name: string | null }>,
+  campaignType: "brand" | "amazon" = "brand"
 ): Promise<{ job_id: string; total: number }> {
-  const { data } = await api.post("/campaign-creator/start", { items });
+  const { data } = await api.post("/campaign-creator/start", { items, campaign_type: campaignType });
   return data;
 }
 

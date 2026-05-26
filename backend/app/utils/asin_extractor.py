@@ -12,6 +12,9 @@ _ASIN_COUNTRY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Matches [Brand] or [Amazon] tag anywhere in the campaign name.
+_CAMPAIGN_TYPE_PATTERN = re.compile(r'\[(Brand|Amazon)\]', re.IGNORECASE)
+
 
 def extract_asin_and_country(campaign_name: str) -> Tuple[Optional[str], Optional[str]]:
     """Return (asin, country_code) extracted from a campaign name, or (None, None)."""
@@ -28,3 +31,20 @@ def extract_asin(campaign_name: str) -> Optional[str]:
     """Extract Amazon ASIN from a campaign name (backwards-compatible)."""
     asin, _ = extract_asin_and_country(campaign_name)
     return asin
+
+
+def extract_campaign_type(campaign_name: str) -> Optional[str]:
+    """
+    Return 'brand' or 'amazon' if the campaign name contains [Brand] or [Amazon].
+    Returns None for legacy campaigns without a type tag.
+    Examples:
+      "Product - [Brand] B0FZC2FVKW"  → "brand"
+      "Product - [Amazon] B0FZC2FVKW" → "amazon"
+      "Product - B0FZC2FVKW"          → None
+    """
+    if not campaign_name:
+        return None
+    m = _CAMPAIGN_TYPE_PATTERN.search(campaign_name)
+    if m:
+        return m.group(1).lower()  # "brand" or "amazon"
+    return None

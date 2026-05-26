@@ -37,13 +37,14 @@ def _period_expr(groupby: str) -> str:
     return "g.date"  # day (default)
 
 
-# Subquery: count how many campaigns share the same (asin, date) in the range.
-# Used to pro-rate Archer revenue so it is never double-counted.
+# Subquery: count how many campaigns share the same (asin, date) in the range
+# AND had actual spend > 0 that day.  Paused / $0-spend campaigns are excluded
+# so revenue is not diluted by inactive campaigns sharing the same ASIN.
 _CC_SUBQUERY = (
     " LEFT JOIN ("
     "   SELECT asin, date, COUNT(*) AS cnt"
     "   FROM google_ads_campaign_day"
-    "   WHERE date BETWEEN :date_from AND :date_to AND asin IS NOT NULL"
+    "   WHERE date BETWEEN :date_from AND :date_to AND asin IS NOT NULL AND spend_usd > 0"
     "   GROUP BY asin, date"
     " ) cc ON g.asin = cc.asin AND g.date = cc.date"
 )
@@ -134,6 +135,7 @@ def get_campaigns(
     campaign_filter: str = "",
     status_filter: str = "",
     country_code: str = "",
+    campaign_type_filter: str = "",
 ) -> List[CampaignRow]:
     if sort_by not in _SORT_WHITELIST:
         sort_by = "spend_usd"
@@ -173,7 +175,8 @@ def get_campaigns(
         "       THEN SUM(g.spend_usd)"
         "            / COALESCE(SUM(a.revenue_usd / COALESCE(cc.cnt, 1)), 0)   END AS acos,"
         "  ls.campaign_status                                                   AS current_status,"
-        "  fs.first_seen                                                        AS first_seen"
+        "  fs.first_seen                                                        AS first_seen,"
+        "  MAX(g.campaign_type)                                                 AS campaign_type"
         " FROM google_ads_campaign_day g"
         + _archer_join(country_code)
         + _CC_SUBQUERY
@@ -207,6 +210,7 @@ def get_campaigns(
         "   AND (:asin     = '' OR g.asin LIKE '%' || :asin || '%')"
         "   AND (:campaign = '' OR g.campaign_name LIKE '%' || :campaign || '%')"
         "   AND (:status   = '' OR COALESCE(ls.campaign_status, '') = :status)"
+        "   AND (:campaign_type_filter = '' OR COALESCE(g.campaign_type, 'brand') = :campaign_type_filter)"
         f"  {country_filter}"
         " GROUP BY g.campaign_id, g.asin"
         f" ORDER BY {sort_col} {dir_sql}"
@@ -218,6 +222,7 @@ def get_campaigns(
         "asin": asin_filter,
         "campaign": campaign_filter,
         "status": status_filter,
+        "campaign_type_filter": campaign_type_filter,
     }
     if country_code:
         params["country_code"] = country_code
@@ -245,6 +250,7 @@ def get_campaigns(
             units_sold=int(r.units_sold or 0),
             current_status=r.current_status,
             first_seen=str(r.first_seen) if r.first_seen else None,
+            campaign_type=r.campaign_type,
         )
         for r in rows
     ]

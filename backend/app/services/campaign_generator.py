@@ -32,7 +32,30 @@ _MAX_WORKERS = 5
 
 # ── Claude prompt (ported verbatim from amazon-ads-automation) ─────────────
 
-_PROMPT_TEMPLATE = """\
+_POLICY_RULES = """\
+GOOGLE ADS POLICY COMPLIANCE (critical - violations cause disapprovals):
+
+NEVER use these words or phrases:
+- Medical/disease claims: "cure", "cures", "treats", "treatment", "heals", "prevents disease", "fights cancer", "eliminates"
+- Clinical language: "clinically proven", "medically tested", "doctor recommended", "FDA approved", "pharmaceutical"
+- Unrealistic promises: "miracle", "magic", "instant results", "guaranteed results", "100% effective", "works immediately"
+- Superlatives without proof: "#1", "best in the world", "most powerful", "strongest ever"
+- Urgency manipulation: "act now or else", "last chance forever"
+- Prohibited health claims for supplements: do not say a supplement diagnoses, cures, treats, or prevents any disease
+
+ALWAYS use these safe alternatives instead:
+- Use "supports" instead of "treats" (e.g. "supports immune health" NOT "treats immune issues")
+- Use "promotes" instead of "cures" (e.g. "promotes wellness" NOT "cures illness")
+- Use "may help" or "helps maintain" for gentle benefit claims
+- Use "daily wellness routine", "everyday support", "as part of a healthy lifestyle"
+- Focus on ingredients, quality, formulation, and general wellbeing
+- For supplements: describe ingredients and general support, not medical outcomes
+- Use "shop", "explore", "discover", "get" instead of aggressive CTAs
+- Superlatives are OK when qualified: "one of the top-rated", "highly reviewed on Amazon"
+"""
+
+# ── Branded keyword campaign prompt ───────────────────────────────────────────
+_BRAND_PROMPT_TEMPLATE = """\
 You are a Google Ads expert specializing in Amazon affiliate marketing.
 
 Product: {product_name}
@@ -94,42 +117,85 @@ RULES:
 - Focus on benefits, specs, and trust factors
 - Match the style of the example above
 
-GOOGLE ADS POLICY COMPLIANCE (critical - violations cause disapprovals):
+""" + _POLICY_RULES
 
-NEVER use these words or phrases:
-- Medical/disease claims: "cure", "cures", "treats", "treatment", "heals", "prevents disease", "fights cancer", "eliminates"
-- Clinical language: "clinically proven", "medically tested", "doctor recommended", "FDA approved", "pharmaceutical"
-- Unrealistic promises: "miracle", "magic", "instant results", "guaranteed results", "100% effective", "works immediately"
-- Superlatives without proof: "#1", "best in the world", "most powerful", "strongest ever"
-- Urgency manipulation: "act now or else", "last chance forever"
-- Prohibited health claims for supplements: do not say a supplement diagnoses, cures, treats, or prevents any disease
+# ── Amazon category keyword campaign prompt ───────────────────────────────────
+_AMAZON_PROMPT_TEMPLATE = """\
+You are a Google Ads expert specializing in Amazon affiliate marketing.
 
-ALWAYS use these safe alternatives instead:
-- Use "supports" instead of "treats" (e.g. "supports immune health" NOT "treats immune issues")
-- Use "promotes" instead of "cures" (e.g. "promotes wellness" NOT "cures illness")
-- Use "may help" or "helps maintain" for gentle benefit claims
-- Use "daily wellness routine", "everyday support", "as part of a healthy lifestyle"
-- Focus on ingredients, quality, formulation, and general wellbeing
-- For supplements: describe ingredients and general support, not medical outcomes
-- Use "shop", "explore", "discover", "get" instead of aggressive CTAs
-- Superlatives are OK when qualified: "one of the top-rated", "highly reviewed on Amazon"
-"""
+Product: {product_name}
+ASIN: {asin}
+
+Generate a complete Google Ads campaign targeting shoppers searching for this PRODUCT CATEGORY on Amazon.
+DO NOT use any brand-specific keywords. Target generic category searches — every keyword MUST include the word "amazon".
+
+EXAMPLE (for "Resilia Softgels with Black Seed Oil"):
+Campaign: Black Seed Oil Supplement
+Keywords: "black seed oil amazon", [black seed oil capsules amazon], "oregano oil amazon", [oregano oil capsules amazon], "black seed oil supplement amazon", [buy black seed oil amazon], "oil of oregano amazon", [herbal immune supplement amazon], "black seed supplement amazon"
+Headlines: Black Seed Oil on Amazon, Shop Oil of Oregano, Buy Black Seed Capsules, Top Black Seed Amazon, Oregano Oil on Amazon, Herbal Supplement Amazon, Shop Herbal Oils Amazon, Black Seed Oil Store, Oregano Capsules Amazon, Shop on Amazon
+Descriptions: Shop top-rated black seed oil supplements with fast delivery on Amazon., Find premium oregano oil capsules and herbal immune support on Amazon., Browse quality herbal supplements at great prices on Amazon today., Discover trusted black seed and oregano oil blends available on Amazon.
+
+Provide your response in the following exact format:
+
+CAMPAIGN_NAME: [Generic category name — NO brand name, keep it short and descriptive]
+
+KEYWORDS:
+"category keyword amazon"
+[category keyword amazon]
+"category variation amazon"
+[buy category keyword amazon]
+"category on amazon"
+[related category amazon]
+"shop category amazon"
+[category supplement amazon]
+"broader category amazon"
+(9 keywords total — EVERY keyword MUST contain the word "amazon" — mix of "exact match" (quotes) and [phrase match] (brackets) — NO bare keywords without quotes or brackets)
+
+HEADLINES:
+Category on Amazon
+Shop Category Amazon
+Buy Category on Amazon
+Top Category Amazon
+... (12-15 headlines total, MAXIMUM 30 characters each - strict!)
+
+DESCRIPTIONS:
+Shopping-focused description for finding this category on Amazon (max 90 chars).
+Quality/selection description for this product type available on Amazon (max 90 chars).
+Trust/value description about shopping this category on Amazon (max 90 chars).
+Fourth shopping-intent description for this category on Amazon (max 90 chars).
+
+RULES:
+- Keywords: 9 total, EVERY keyword MUST include the word "amazon"
+- Mix of "exact match" (quotes) and [phrase match] (brackets) — roughly 40% exact, 60% phrase
+- NO bare keywords (no broad match — every keyword must have quotes or brackets)
+- NO brand name in keywords, headlines, or descriptions — use generic category terms only
+- Headlines: 12-15 total, MAXIMUM 30 characters each (strict!)
+- Descriptions: 4 total, MAXIMUM 90 characters each (strict!)
+- Focus on Amazon shopping intent: buy, shop, find, discover, browse on Amazon
+
+""" + _POLICY_RULES
+
+# Keep old name as alias for backwards compatibility
+_PROMPT_TEMPLATE = _BRAND_PROMPT_TEMPLATE
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def start_job(items: List[Dict]) -> str:
+def start_job(items: List[Dict], campaign_type: str = "brand") -> str:
     """
     Create a CampaignJob + CampaignJobItems in the DB and start background processing.
+    campaign_type: "brand" (branded keywords) | "amazon" (category + Amazon keywords)
     Returns the job_id (UUID string).
     """
     job_id = str(uuid.uuid4())
+    campaign_type = campaign_type if campaign_type in ("brand", "amazon") else "brand"
 
     db = SessionLocal()
     try:
         job = CampaignJob(
             id=job_id,
             status="pending",
+            campaign_type=campaign_type,
             total=len(items),
             processed=0,
             failed_count=0,
@@ -200,12 +266,14 @@ def _process_job(job_id: str) -> None:
         job.status = "running"
         db.commit()
 
+        campaign_type = job.campaign_type or "brand"
         pending = db.query(CampaignJobItem).filter(
             CampaignJobItem.job_id == job_id,
             CampaignJobItem.status == "pending",
         ).all()
         item_data = [
-            {"id": i.id, "asin": i.asin, "product_name": i.product_name}
+            {"id": i.id, "asin": i.asin, "product_name": i.product_name,
+             "campaign_type": campaign_type}
             for i in pending
         ]
     finally:
@@ -233,11 +301,12 @@ def _process_one(item_data: Dict) -> None:
     item_id: int = item_data["id"]
     asin: str = item_data["asin"]
     product_name: Optional[str] = item_data.get("product_name")
+    campaign_type: str = item_data.get("campaign_type", "brand")
 
     db = SessionLocal()
     try:
-        # 1. Attribution link (cached)
-        link = _get_or_create_link(db, asin)
+        # 1. Attribution link (cached per asin+campaign_type)
+        link = _get_or_create_link(db, asin, campaign_type)
         if not link:
             _set_item_result(db, item_id, status="failed",
                              error="Failed to generate attribution link from Archer API")
@@ -252,7 +321,7 @@ def _process_one(item_data: Dict) -> None:
             return
 
         # 3. Generate ad copy with Claude
-        ad_copy = _generate_ad_copy(product_name, asin)
+        ad_copy = _generate_ad_copy(product_name, asin, campaign_type)
 
         # 4. Persist
         _set_item_result(
@@ -341,26 +410,35 @@ def _finalize_job(job_id: str) -> None:
 
 # ── Archer / Claude helpers ───────────────────────────────────────────────────
 
-def _get_or_create_link(db: Any, asin: str) -> Optional[str]:
-    """Return cached attribution link or generate + cache a new one."""
-    cached = db.query(AttributionLinkCache).filter(AttributionLinkCache.asin == asin).first()
+def _get_or_create_link(db: Any, asin: str, campaign_type: str = "brand") -> Optional[str]:
+    """
+    Return cached attribution link or generate + cache a new one.
+    Each (asin, campaign_type) pair gets its own distinct Archer link so revenue
+    can be tracked separately per campaign type.
+    """
+    cached = db.query(AttributionLinkCache).filter(
+        AttributionLinkCache.asin == asin,
+        AttributionLinkCache.campaign_type == campaign_type,
+    ).first()
     if cached:
-        logger.debug("Attribution link cache hit for %s", asin)
+        logger.debug("Attribution link cache hit for %s / %s", asin, campaign_type)
         return cached.url
 
+    type_label = "Brand" if campaign_type == "brand" else "Amazon"
+    link_name = f"Google Ads - {asin} - {type_label}"
     try:
         client = ArcherClient()
         link = client.generate_attribution_link(
             asin=asin,
-            link_name=f"Google Ads - {asin}",
+            link_name=link_name,
             geo="US",
         )
         if link:
-            db.merge(AttributionLinkCache(asin=asin, url=link))
+            db.merge(AttributionLinkCache(asin=asin, campaign_type=campaign_type, url=link))
             db.commit()
         return link
     except Exception as exc:
-        logger.warning("Attribution link generation failed for %s: %s", asin, exc)
+        logger.warning("Attribution link generation failed for %s/%s: %s", asin, campaign_type, exc)
         return None
 
 
@@ -378,14 +456,19 @@ def _fetch_product_name(asin: str) -> Optional[str]:
         return None
 
 
-def _generate_ad_copy(product_name: str, asin: str) -> Dict:
-    """Call Claude to generate keywords, headlines, and descriptions."""
+def _generate_ad_copy(product_name: str, asin: str, campaign_type: str = "brand") -> Dict:
+    """
+    Call Claude to generate keywords, headlines, and descriptions.
+    campaign_type "brand" → branded keyword prompt
+    campaign_type "amazon" → Amazon category keyword prompt (all keywords include "amazon")
+    """
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
     client = Anthropic(api_key=settings.anthropic_api_key)
-    prompt = _PROMPT_TEMPLATE.format(product_name=product_name, asin=asin)
+    template = _BRAND_PROMPT_TEMPLATE if campaign_type == "brand" else _AMAZON_PROMPT_TEMPLATE
+    prompt = template.format(product_name=product_name, asin=asin)
 
     try:
         message = client.messages.create(
@@ -396,15 +479,17 @@ def _generate_ad_copy(product_name: str, asin: str) -> Dict:
         text = message.content[0].text
         parsed = _parse_response(text)
 
-        # Ensure campaign name includes ASIN suffix
+        # Append type tag + ASIN to campaign name
         base_name = parsed.get("campaign_name") or product_name[:50]
-        parsed["campaign_name"] = f"{base_name} - {asin}"
+        tag = "[Brand]" if campaign_type == "brand" else "[Amazon]"
+        parsed["campaign_name"] = f"{base_name} - {tag} {asin}"
         return parsed
 
     except Exception as exc:
         logger.exception("Claude API failed for ASIN %s", asin)
+        tag = "[Brand]" if campaign_type == "brand" else "[Amazon]"
         return {
-            "campaign_name": f"Amazon - {asin}",
+            "campaign_name": f"Campaign - {tag} {asin}",
             "keywords": [],
             "headlines": [],
             "descriptions": [],

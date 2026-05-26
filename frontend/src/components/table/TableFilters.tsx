@@ -4,22 +4,27 @@ type StatusOption = (typeof STATUS_OPTIONS)[number];
 const COUNTRY_OPTIONS = ["All", "US", "UK", "DE", "JP", "CA"] as const;
 type CountryOption = (typeof COUNTRY_OPTIONS)[number];
 
+const TYPE_OPTIONS = ["All", "Brand", "Amazon"] as const;
+type TypeOption = (typeof TYPE_OPTIONS)[number];
+
 interface Props {
   campaignFilter: string;
   asinFilter: string;
   statusFilter: StatusOption;
   countryFilter: CountryOption;
+  typeFilter: TypeOption;
   ageMin: number | "";
   ageMax: number | "";
   onCampaignChange: (v: string) => void;
   onAsinChange: (v: string) => void;
   onStatusChange: (v: StatusOption) => void;
   onCountryChange: (v: CountryOption) => void;
+  onTypeChange: (v: TypeOption) => void;
   onAgeMinChange: (v: number | "") => void;
   onAgeMaxChange: (v: number | "") => void;
 }
 
-export type { StatusOption, CountryOption };
+export type { StatusOption, CountryOption, TypeOption };
 
 function parseDay(val: string): number | "" {
   return val === "" ? "" : Math.max(0, parseInt(val, 10) || 0);
@@ -30,12 +35,14 @@ export function TableFilters({
   asinFilter,
   statusFilter,
   countryFilter,
+  typeFilter,
   ageMin,
   ageMax,
   onCampaignChange,
   onAsinChange,
   onStatusChange,
   onCountryChange,
+  onTypeChange,
   onAgeMinChange,
   onAgeMaxChange,
 }: Props) {
@@ -81,6 +88,22 @@ export function TableFilters({
             onClick={() => onCountryChange(opt)}
             className={`px-3 py-1.5 transition-colors ${
               countryFilter === opt
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-600 hover:bg-gray-50"
+            } ${opt !== "All" ? "border-l border-gray-300" : ""}`}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+      {/* Type filter */}
+      <div className="flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium">
+        {TYPE_OPTIONS.map((opt) => (
+          <button
+            key={opt}
+            onClick={() => onTypeChange(opt)}
+            className={`px-3 py-1.5 transition-colors ${
+              typeFilter === opt
                 ? "bg-blue-600 text-white"
                 : "bg-white text-gray-600 hover:bg-gray-50"
             } ${opt !== "All" ? "border-l border-gray-300" : ""}`}

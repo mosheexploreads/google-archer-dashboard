@@ -48,6 +48,7 @@ def dashboard_campaigns(
     campaign: str = Query("", description="Filter by campaign name (partial match)"),
     status: str = Query("", description="Filter by campaign status (Enabled/Paused/Removed)"),
     country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
+    campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -56,6 +57,7 @@ def dashboard_campaigns(
         sort_by=sort_by, sort_dir=sort_dir,
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, country_code=country_code,
+        campaign_type_filter=campaign_type,
     )
     return CampaignsResponse(rows=rows, total=len(rows))
 

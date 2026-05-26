@@ -56,6 +56,7 @@ function formatDate(iso: string | null): string {
 
 export function CreateCampaignsPage() {
   const [input, setInput] = useState("");
+  const [campaignType, setCampaignType] = useState<"brand" | "amazon">("brand");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +124,7 @@ export function CreateCampaignsPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const { job_id } = await startCampaignJob(parsedItems);
+      const { job_id } = await startCampaignJob(parsedItems, campaignType);
       setActiveJobId(job_id);
       setActiveJob(null);
       setInput("");
@@ -173,6 +174,33 @@ export function CreateCampaignsPage() {
           disabled={submitting}
         />
 
+        {/* Campaign type selector */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600 font-medium">Campaign type:</span>
+          <div className="flex rounded-md border border-gray-300 overflow-hidden text-sm font-medium">
+            <button
+              onClick={() => setCampaignType("brand")}
+              className={`px-4 py-1.5 transition-colors ${
+                campaignType === "brand"
+                  ? "bg-purple-600 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              [Brand] — Branded keywords
+            </button>
+            <button
+              onClick={() => setCampaignType("amazon")}
+              className={`px-4 py-1.5 border-l border-gray-300 transition-colors ${
+                campaignType === "amazon"
+                  ? "bg-orange-500 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              [Amazon] — Category + Amazon keywords
+            </button>
+          </div>
+        </div>
+
         {error && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
             {error}
@@ -213,6 +241,13 @@ export function CreateCampaignsPage() {
                 )}`}
               >
                 {activeJob.status}
+              </span>
+              <span className={`ml-1.5 text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                activeJob.campaign_type === "amazon"
+                  ? "bg-orange-100 text-orange-700"
+                  : "bg-purple-100 text-purple-700"
+              }`}>
+                {activeJob.campaign_type === "amazon" ? "Amazon" : "Brand"}
               </span>
             </div>
             {(activeJob.status === "completed" ||
@@ -286,6 +321,13 @@ export function CreateCampaignsPage() {
                     )}`}
                   >
                     {job.status}
+                  </span>
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                    job.campaign_type === "amazon"
+                      ? "bg-orange-100 text-orange-700"
+                      : "bg-purple-100 text-purple-700"
+                  }`}>
+                    {job.campaign_type === "amazon" ? "Amazon" : "Brand"}
                   </span>
                   <span className="text-gray-500 text-xs">
                     {job.processed}/{job.total}

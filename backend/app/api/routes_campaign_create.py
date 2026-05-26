@@ -40,6 +40,7 @@ def _job_to_schema(job: CampaignJob, db: Session) -> CampaignCreatorJobStatus:
     return CampaignCreatorJobStatus(
         job_id=job.id,
         status=job.status,
+        campaign_type=job.campaign_type or "brand",
         total=job.total,
         processed=done + failed,
         failed_count=failed,
@@ -61,7 +62,8 @@ def start_campaign_job(
     if not items:
         raise HTTPException(status_code=400, detail="No valid ASINs provided")
 
-    job_id = campaign_generator.start_job(items)
+    campaign_type = body.campaign_type if body.campaign_type in ("brand", "amazon") else "brand"
+    job_id = campaign_generator.start_job(items, campaign_type=campaign_type)
     return {"job_id": job_id, "total": len(items)}
 
 

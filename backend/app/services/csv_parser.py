@@ -31,7 +31,7 @@ import logging
 from datetime import date
 from typing import Optional
 
-from ..utils.asin_extractor import extract_asin_and_country
+from ..utils.asin_extractor import extract_asin_and_country, extract_campaign_type
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,7 @@ def parse_google_ads_csv(content: bytes) -> list[dict]:
             continue
 
         asin, country_code = extract_asin_and_country(campaign_name)
+        ctype = extract_campaign_type(campaign_name)
 
         raw_date = get("date")
         parsed_date: Optional[date] = None
@@ -222,6 +223,7 @@ def parse_google_ads_csv(content: bytes) -> list[dict]:
             "campaign_name":    campaign_name,
             "asin":             asin,
             "country_code":     country_code,
+            "campaign_type":    ctype,
             "date":             parsed_date,
             "spend_usd":        _clean_number(get("spend_usd")) or 0.0,
             "clicks":           int(_clean_number(get("clicks")) or 0),
