@@ -1,13 +1,16 @@
 import re
 from typing import Optional, Tuple
 
-# Matches ASIN optionally followed by " - COUNTRYCODE" at end of campaign name.
+# Matches ASIN optionally preceded by "[Brand]" or "[Amazon]" tag and followed
+# by an optional " - COUNTRYCODE" suffix.
 # Group 1 = ASIN, group 2 = country code (optional).
 # Examples:
-#   "VALI Caffeine - B074G3SYTT"        → ("B074G3SYTT", None)
-#   "Brand - B074G3SYTT - UK"           → ("B074G3SYTT", "UK")
+#   "VALI Caffeine - B074G3SYTT"                → ("B074G3SYTT", None)
+#   "Brand - B074G3SYTT - UK"                   → ("B074G3SYTT", "UK")
+#   "xTool S1 Laser Cutter - [Brand] B0CQ84BDTX" → ("B0CQ84BDTX", None)
+#   "Product - [Amazon] B0FHWVMX2L"             → ("B0FHWVMX2L", None)
 _ASIN_COUNTRY_PATTERN = re.compile(
-    r"(?:\s*-\s*)(B0[A-Z0-9]{8}|[0-9][A-Z0-9]{9})"
+    r"(?:\s*-\s*)(?:\[(?:Brand|Amazon)\]\s*)?(B0[A-Z0-9]{8}|[0-9][A-Z0-9]{9})"
     r"(?:\s*-\s*([A-Z]{2}))?",
     re.IGNORECASE,
 )

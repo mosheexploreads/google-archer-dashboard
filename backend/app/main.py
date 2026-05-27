@@ -161,6 +161,55 @@ def _migrate_archer_total_sales_usd(engine):
             conn.execute(text("ALTER TABLE archer_product_day ADD COLUMN total_sales_usd REAL DEFAULT 0.0"))
 
 
+def _backfill_null_asins(engine):
+    """
+    One-time fix: re-extract ASINs for google_ads_campaign_day rows where asin IS NULL.
+
+    Previous campaign name format: "Product - ASIN"
+    New format used since ~May 2026: "Product - [Brand] ASIN"
+
+    The old regex didn't skip the [Brand]/[Amazon] tag, so all new-format campaigns
+    were stored with asin=NULL, causing zero revenue attribution for those campaigns.
+    """
+    from sqlalchemy import text
+    from .utils.asin_extractor import extract_asin_and_country
+
+    with engine.connect() as conn:
+        # How many NULL ASIN rows exist?
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM google_ads_campaign_day WHERE asin IS NULL"
+        )).scalar()
+        if not total:
+            return  # nothing to do
+
+        logger.info("Backfilling ASINs for %d NULL rows in google_ads_campaign_day...", total)
+
+        # Work campaign-by-campaign (one UPDATE per campaign, not per row)
+        campaigns = conn.execute(text(
+            "SELECT DISTINCT campaign_id, campaign_name "
+            "FROM google_ads_campaign_day WHERE asin IS NULL"
+        )).fetchall()
+
+    updated = 0
+    with engine.begin() as conn:
+        for campaign in campaigns:
+            asin, country_code = extract_asin_and_country(campaign.campaign_name)
+            if not asin:
+                continue
+            conn.execute(text(
+                "UPDATE google_ads_campaign_day "
+                "SET asin = :asin, "
+                "    country_code = COALESCE(country_code, :cc) "
+                "WHERE campaign_id = :cid AND asin IS NULL"
+            ), {"asin": asin, "cc": country_code, "cid": campaign.campaign_id})
+            updated += 1
+
+    logger.info(
+        "Backfill complete: %d of %d campaigns got ASINs extracted.",
+        updated, len(campaigns),
+    )
+
+
 def _migrate_attribution_link_cache_campaign_type(engine):
     """
     Rebuild attribution_link_cache with composite PK (asin, campaign_type).
@@ -213,6 +262,7 @@ async def lifespan(app: FastAPI):
     _migrate_attribution_link_cache_campaign_type(engine)
     _ensure_test_campaign_columns(engine)
     _migrate_archer_total_sales_usd(engine)
+    _backfill_null_asins(engine)  # fix [Brand]/[Amazon] ASIN extraction regression
 
     Base.metadata.create_all(bind=engine)
 
