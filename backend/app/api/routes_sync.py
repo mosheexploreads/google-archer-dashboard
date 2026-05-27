@@ -50,6 +50,19 @@ def trigger_sync():
     return TriggerResponse(message="Sync triggered. Check /api/sync/status for progress.")
 
 
+@router.get("/debug/config")
+def debug_config():
+    """Return the active configuration values (non-secret) to verify Railway env vars."""
+    from ..config import get_settings
+    settings = get_settings()
+    return {
+        "archer_base_url": settings.archer_base_url,
+        "archer_username": settings.archer_username,
+        "archer_markets": settings.archer_markets,
+        "database_url": settings.database_url,
+    }
+
+
 @router.get("/debug/archer")
 def debug_archer(
     date_from: str = "2026-05-25",
