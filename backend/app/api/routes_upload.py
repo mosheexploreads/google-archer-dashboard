@@ -44,6 +44,27 @@ def _upsert_rows(db: Session, rows: list[dict]) -> int:
     return count
 
 
+@router.delete("/google-ads/date/{report_date}")
+def delete_google_ads_date(report_date: str):
+    """Delete all google_ads_campaign_day rows for a specific date (YYYY-MM-DD). Use before re-uploading."""
+    from sqlalchemy import text
+    try:
+        from datetime import datetime as _dt
+        _dt.strptime(report_date, "%Y-%m-%d")  # validate format
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    db = SessionLocal()
+    try:
+        result = db.execute(text("DELETE FROM google_ads_campaign_day WHERE date = :d"), {"d": report_date})
+        db.commit()
+        deleted = result.rowcount
+        logger.info("Deleted %d Google Ads rows for %s", deleted, report_date)
+        return {"date": report_date, "rows_deleted": deleted, "message": f"Deleted {deleted} rows for {report_date}. Safe to re-upload."}
+    finally:
+        db.close()
+
+
 @router.post("/google-ads", response_model=UploadResult)
 async def upload_google_ads_csv(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".csv"):
