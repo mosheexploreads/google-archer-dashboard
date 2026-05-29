@@ -47,11 +47,15 @@ export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, 
     <>
       {dates.map((row) => (
         <tr key={row.period} className="border-b border-blue-100/50">
-          {/* indent cell */}
+          {/* indent — expand toggle column */}
           <td className={`${tdBase} text-gray-300 text-center`}>└</td>
-          {/* period in Campaign column */}
+          {/* period — Campaign name column */}
           <td className={`${tdBase} font-mono text-gray-500`}>{row.period}</td>
+          {/* Country placeholder */}
+          <td className={tdBase} />
           {/* Status placeholder */}
+          <td className={tdBase} />
+          {/* Type placeholder */}
           <td className={tdBase} />
           {/* Age placeholder */}
           <td className={tdBase} />
