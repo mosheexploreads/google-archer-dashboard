@@ -24,12 +24,13 @@ class GoogleAdsCampaignDay(Base):
 
 
 class ArcherProductDay(Base):
-    """One row per (asin, date, geo). Upserted on each sync."""
+    """One row per (asin, date, geo, link_type). Upserted on each sync."""
     __tablename__ = "archer_product_day"
 
     asin = Column(String, primary_key=True, nullable=False)
     date = Column(Date, primary_key=True, nullable=False)
     geo = Column(String, primary_key=True, nullable=False, default="US")  # US | EU | FE | CA
+    link_type = Column(String, primary_key=True, nullable=False, default="brand")  # "brand" | "amazon"
     product_name = Column(String, nullable=True)
 
     revenue_usd     = Column(Float, default=0.0)

@@ -161,6 +161,51 @@ def _migrate_archer_total_sales_usd(engine):
             conn.execute(text("ALTER TABLE archer_product_day ADD COLUMN total_sales_usd REAL DEFAULT 0.0"))
 
 
+def _migrate_archer_link_type(engine):
+    """
+    Rebuild archer_product_day with link_type as part of the primary key.
+    Old PK: (asin, date, geo).  New PK: (asin, date, geo, link_type).
+    Existing rows are tagged link_type='brand'.
+    This enables separate revenue tracking for brand vs amazon attribution links.
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "archer_product_day" not in insp.get_table_names():
+        return  # create_all will build the new schema
+    existing_cols = {c["name"] for c in insp.get_columns("archer_product_day")}
+    if "link_type" in existing_cols:
+        return  # already migrated
+    logger.info("Migrating archer_product_day: adding link_type column and rebuilding PK...")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE archer_product_day_new ("
+            "  asin            TEXT NOT NULL,"
+            "  date            DATE NOT NULL,"
+            "  geo             TEXT NOT NULL DEFAULT 'US',"
+            "  link_type       TEXT NOT NULL DEFAULT 'brand',"
+            "  product_name    TEXT,"
+            "  revenue_usd     REAL DEFAULT 0.0,"
+            "  total_sales_usd REAL DEFAULT 0.0,"
+            "  orders          INTEGER DEFAULT 0,"
+            "  units_sold      INTEGER DEFAULT 0,"
+            "  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  PRIMARY KEY (asin, date, geo, link_type)"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO archer_product_day_new "
+            "(asin, date, geo, link_type, product_name, revenue_usd, total_sales_usd, "
+            " orders, units_sold, created_at, updated_at) "
+            "SELECT asin, date, geo, 'brand', product_name, revenue_usd, "
+            "       COALESCE(total_sales_usd, 0.0), orders, units_sold, created_at, updated_at "
+            "FROM archer_product_day"
+        ))
+        conn.execute(text("DROP TABLE archer_product_day"))
+        conn.execute(text("ALTER TABLE archer_product_day_new RENAME TO archer_product_day"))
+    logger.info("archer_product_day link_type migration complete.")
+
+
 def _backfill_null_asins(engine):
     """
     One-time fix: re-extract ASINs for google_ads_campaign_day rows where asin IS NULL.
@@ -287,6 +332,7 @@ async def lifespan(app: FastAPI):
     _migrate_attribution_link_cache_campaign_type(engine)
     _ensure_test_campaign_columns(engine)
     _migrate_archer_total_sales_usd(engine)
+    _migrate_archer_link_type(engine)  # separate brand vs amazon revenue rows
     _backfill_null_asins(engine)  # fix [Brand]/[Amazon] ASIN extraction regression
 
     Base.metadata.create_all(bind=engine)

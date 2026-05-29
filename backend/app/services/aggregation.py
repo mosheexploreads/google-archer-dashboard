@@ -39,13 +39,17 @@ def _period_expr(groupby: str) -> str:
     return "g.date"  # day (default)
 
 
-# Subquery: per (asin, date) compute
+# Subquery: per (asin, date, campaign_type) compute
 #   cnt_active — campaigns with spend > 0
 #   cnt        — effective denominator: cnt_active if any are active, else total count
 #                (so revenue is never lost when all campaigns are paused)
+#
+# Partitioning by campaign_type (brand vs amazon) ensures that amazon campaign rows
+# only share revenue from the amazon Archer link, not the brand link — preventing
+# fake revenue from appearing on amazon campaigns when only the brand link earned money.
 _CC_SUBQUERY = (
     " LEFT JOIN ("
-    "   SELECT asin, date,"
+    "   SELECT asin, date, COALESCE(campaign_type, 'brand') AS ctype,"
     "     SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END) AS cnt_active,"
     "     CASE WHEN SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END) > 0"
     "          THEN SUM(CASE WHEN spend_usd > 0 THEN 1 ELSE 0 END)"
@@ -53,8 +57,9 @@ _CC_SUBQUERY = (
     "     END AS cnt"
     "   FROM google_ads_campaign_day"
     "   WHERE date BETWEEN :date_from AND :date_to AND asin IS NOT NULL"
-    "   GROUP BY asin, date"
+    "   GROUP BY asin, date, COALESCE(campaign_type, 'brand')"
     " ) cc ON g.asin = cc.asin AND g.date = cc.date"
+    "   AND cc.ctype = COALESCE(g.campaign_type, 'brand')"
 )
 
 
@@ -78,11 +83,20 @@ def _cc_share(col: str) -> str:
 # When filtering by country_code, restrict the Archer JOIN to the matching geo.
 # Without a filter join only US geo — all current campaigns are US campaigns and
 # summing all geos would inflate revenue with EU/FE/CA data unrelated to the ad spend.
+# link_type matches campaign_type so brand campaigns see brand-link revenue only,
+# and amazon campaigns see amazon-link revenue only (which is $0 for most ASINs).
 def _archer_join(country_code: str = "") -> str:
+    link_cond = "AND a.link_type = COALESCE(g.campaign_type, 'brand')"
     if country_code:
         geo = country_to_geo(country_code)
-        return f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = '{geo}'"
-    return " LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date AND a.geo = 'US'"
+        return (
+            f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
+            f" AND a.geo = '{geo}' {link_cond}"
+        )
+    return (
+        f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
+        f" AND a.geo = 'US' {link_cond}"
+    )
 
 # Map sort_by param to the qualified column expression used in ORDER BY.
 # Unqualified names like "asin" are ambiguous when multiple JOINed tables

@@ -141,6 +141,10 @@ class ArcherClient:
         # Normalise field names
         normalised = []
         for row in all_rows:
+            # Classify link type from link_name: "Google Ads - ASIN - Amazon" → "amazon",
+            # everything else (e.g. "Campaign_ASIN") → "brand".
+            link_name = str(row.get("link_name") or "")
+            link_type = "amazon" if "amazon" in link_name.lower() else "brand"
             normalised.append({
                 "asin":             _resolve_field(row, "asin"),
                 "product_name":     _resolve_field(row, "product_name"),
@@ -149,6 +153,7 @@ class ArcherClient:
                 "orders":           int(_resolve_field(row, "orders") or 0),
                 "units_sold":       int(_resolve_field(row, "units_sold") or 0),
                 "date":             _resolve_field(row, "date"),
+                "link_type":        link_type,
             })
         return normalised
 

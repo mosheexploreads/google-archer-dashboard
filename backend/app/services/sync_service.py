@@ -140,7 +140,8 @@ def sync_archer() -> int:
         for geo in ["US"]:
             rows = client.fetch_earnings(date_from, date_to, geo=None)
 
-            # Aggregate by (asin, date, geo) — API may return one row per link.
+            # Aggregate by (asin, date, geo, link_type) — API may return multiple rows
+            # per link (link_name). Brand links → link_type='brand', amazon links → 'amazon'.
             aggregated: dict[tuple, dict] = {}
             skipped = 0
             for row in rows:
@@ -148,12 +149,14 @@ def sync_archer() -> int:
                 if not row.get("asin") or parsed_date is None:
                     skipped += 1
                     continue
-                key = (row["asin"].upper(), parsed_date, geo)
+                link_type = row.get("link_type", "brand")
+                key = (row["asin"].upper(), parsed_date, geo, link_type)
                 if key not in aggregated:
                     aggregated[key] = {
                         "asin":             row["asin"].upper(),
                         "date":             parsed_date,
                         "geo":              geo,
+                        "link_type":        link_type,
                         "product_name":     row.get("product_name"),
                         "revenue_usd":      row["revenue_usd"],
                         "total_sales_usd":  row.get("total_sales_usd", 0.0),
@@ -170,7 +173,7 @@ def sync_archer() -> int:
             for agg in aggregated.values():
                 stmt = sqlite_insert(ArcherProductDay).values(**agg)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=["asin", "date", "geo"],
+                    index_elements=["asin", "date", "geo", "link_type"],
                     set_={
                         "product_name":     stmt.excluded.product_name,
                         "revenue_usd":      stmt.excluded.revenue_usd,
