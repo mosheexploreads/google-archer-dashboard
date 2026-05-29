@@ -209,6 +209,31 @@ def _backfill_null_asins(engine):
         updated, len(campaigns),
     )
 
+    # Also fix campaign_type: rows with neither 'brand' nor 'amazon' were written
+    # by the duplicate-key bug in csv_parser where get("campaign_type") = "Search"
+    # overwrote the correct ctype value.
+    from .utils.asin_extractor import extract_campaign_type
+    with engine.connect() as conn:
+        bad = conn.execute(text(
+            "SELECT DISTINCT campaign_id, campaign_name FROM google_ads_campaign_day "
+            "WHERE campaign_type NOT IN ('brand', 'amazon') OR campaign_type IS NULL"
+        )).fetchall()
+
+    fixed_type = 0
+    with engine.begin() as conn:
+        for row in bad:
+            ctype = extract_campaign_type(row.campaign_name)
+            if ctype:
+                conn.execute(text(
+                    "UPDATE google_ads_campaign_day SET campaign_type = :ct "
+                    "WHERE campaign_id = :cid "
+                    "AND (campaign_type NOT IN ('brand', 'amazon') OR campaign_type IS NULL)"
+                ), {"ct": ctype, "cid": row.campaign_id})
+                fixed_type += 1
+
+    if fixed_type:
+        logger.info("Backfill campaign_type: fixed %d campaigns.", fixed_type)
+
 
 def _migrate_attribution_link_cache_campaign_type(engine):
     """

@@ -223,6 +223,9 @@ def parse_google_ads_csv(content: bytes) -> list[dict]:
             "campaign_name":    campaign_name,
             "asin":             asin,
             "country_code":     country_code,
+            # ctype = "brand" | "amazon" | None extracted from [Brand]/[Amazon] tag in name.
+            # Do NOT use get("campaign_type") here — that's the Google Ads campaign type
+            # column ("Search", "Display", etc.) which is unrelated to our brand/amazon split.
             "campaign_type":    ctype,
             "date":             parsed_date,
             "spend_usd":        _clean_number(get("spend_usd")) or 0.0,
@@ -233,7 +236,6 @@ def parse_google_ads_csv(content: bytes) -> list[dict]:
             "avg_cpc":          _clean_number(get("avg_cpc")),
             "cost_per_conv":    _clean_number(get("cost_per_conv")),
             "ctr":              _clean_pct(get("ctr")),
-            "campaign_type":    get("campaign_type") or None,
             "campaign_status":  get("campaign_status") or None,
             "bid_strategy":     get("bid_strategy") or None,
             "bid_strategy_type":get("bid_strategy_type") or None,
