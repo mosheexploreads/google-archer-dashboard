@@ -58,6 +58,7 @@ function Badge({ status }: { status: string }) {
     idle:     "bg-gray-100 text-gray-500",
     running:  "bg-blue-100 text-blue-700",
     complete: "bg-green-100 text-green-700",
+    stopped:  "bg-amber-100 text-amber-700",
     error:    "bg-red-100 text-red-700",
   };
   return (
@@ -94,6 +95,7 @@ export function DiscoveryPage() {
   const [hideExisting, setHideExisting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -215,8 +217,17 @@ export function DiscoveryPage() {
 
   const archerRunning = scan?.archer_status === "running";
   const rankRunning   = scan?.rank_status === "running";
-  const archerDone    = scan?.archer_status === "complete";
-  const rankDone      = scan?.rank_status === "complete";
+  const archerDone    = scan?.archer_status === "complete" || scan?.archer_status === "stopped";
+  const rankDone      = scan?.rank_status === "complete" || scan?.rank_status === "stopped";
+
+  async function stopScan() {
+    setStopping(true);
+    try {
+      await fetch(`${API}/api/discovery/scan/stop`, { method: "POST" });
+    } finally {
+      setStopping(false);
+    }
+  }
 
   return (
     <div className="space-y-6 p-4">
@@ -267,6 +278,12 @@ export function DiscoveryPage() {
               className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
               {archerRunning ? "Scanning…" : archerDone ? "Re-scan Archer" : "Scan Archer Catalog"}
             </button>
+            {archerRunning && (
+              <button onClick={stopScan} disabled={stopping}
+                className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors">
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            )}
           </div>
 
           {scan && scan.archer_status !== "idle" && (
@@ -389,6 +406,12 @@ export function DiscoveryPage() {
               {rankRunning ? `Checking… ${scan?.total_ranked ?? 0} / ${scan?.total_filtered ?? "?"}` :
                rankDone ? "Re-check Rankings" : "Check Amazon Rankings"}
             </button>
+            {rankRunning && (
+              <button onClick={stopScan} disabled={stopping}
+                className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors">
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            )}
             {scan?.total_filtered && !rankRunning && (
               <span className="text-xs text-gray-400 self-center">
                 ~{Math.round((scan.total_filtered * 0.5) / 60)} min estimated

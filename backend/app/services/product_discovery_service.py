@@ -13,6 +13,7 @@ Phase 2 — run_rank_scan(scan_id)
 Each phase runs in its own daemon thread and updates DiscoveryScan progress.
 """
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Set
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _archer_running = False
 _rank_running = False
+_stop_event = threading.Event()  # set this to cancel the running scan
 
 
 def is_archer_running() -> bool:
@@ -34,6 +36,15 @@ def is_archer_running() -> bool:
 
 def is_rank_running() -> bool:
     return _rank_running
+
+
+def request_stop():
+    """Signal the currently running scan to stop at the next checkpoint."""
+    _stop_event.set()
+
+
+def is_stop_requested() -> bool:
+    return _stop_event.is_set()
 
 
 def _get_existing_campaign_asins(db) -> Set[str]:
@@ -53,6 +64,7 @@ def run_archer_scan(scan_id: int):
     """
     global _archer_running
     _archer_running = True
+    _stop_event.clear()  # reset any previous stop request
     db = SessionLocal()
     try:
         scan = db.get(DiscoveryScan, scan_id)
@@ -84,6 +96,14 @@ def run_archer_scan(scan_id: int):
         try:
             archer = ArcherClient()
             for page in archer.fetch_products_paged("US"):
+                # Check for user-requested stop between pages
+                if _stop_event.is_set():
+                    logger.info("Discovery scan %d: stop requested — halting after %d scanned.", scan_id, total_scanned)
+                    scan.archer_status = "stopped"
+                    scan.archer_finished_at = datetime.utcnow()
+                    db.commit()
+                    return
+
                 total_scanned += len(page)
                 scan.total_archer = total_scanned
                 db.commit()
@@ -201,6 +221,13 @@ def run_rank_scan(scan_id: int):
         )
 
         for i, candidate in enumerate(candidates):
+            if _stop_event.is_set():
+                logger.info("Discovery scan %d Phase 2: stop requested at %d/%d.", scan_id, i, len(candidates))
+                scan.rank_status = "stopped"
+                scan.rank_finished_at = datetime.utcnow()
+                db.commit()
+                return
+
             if i > 0:
                 time.sleep(0.5)  # ~2 req/s — polite rate limit
 

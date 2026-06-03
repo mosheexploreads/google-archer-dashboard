@@ -25,6 +25,7 @@ from ..models import DiscoveryScan, DiscoveryCandidate, DiscoveryResult
 from ..services.product_discovery_service import (
     run_archer_scan, run_rank_scan,
     is_archer_running, is_rank_running,
+    request_stop, is_stop_requested,
 )
 
 logger = logging.getLogger(__name__)
@@ -245,6 +246,15 @@ def get_results(hide_existing: bool = Query(False)):
 
 
 # ── Shared ────────────────────────────────────────────────────────────────────
+
+@router.post("/scan/stop")
+def stop_scan():
+    """Signal the currently running scan to stop at the next page boundary."""
+    if not is_archer_running() and not is_rank_running():
+        raise HTTPException(status_code=409, detail="No scan is currently running.")
+    request_stop()
+    return {"message": "Stop signal sent. Scan will halt at the next checkpoint."}
+
 
 @router.get("/scan/latest", response_model=Optional[ScanStatus])
 def get_latest_scan():
