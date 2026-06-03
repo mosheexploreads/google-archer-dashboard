@@ -38,9 +38,19 @@ def sync_product_catalog(country_code: str = "US"):
         all_products = archer.fetch_products(country_code)
         logger.info("Fetched %d products from Archer", len(all_products))
 
-        # Insert into DB in batches
+        # Insert into DB in batches, skipping duplicates
         inserted = 0
+        skipped_dups = 0
         for product in all_products:
+            # Check if ASIN already exists (skip duplicates/variants)
+            existing = db.query(ProductCatalog).filter(
+                ProductCatalog.asin == product["asin"],
+                ProductCatalog.country_code == country_code
+            ).first()
+            if existing:
+                skipped_dups += 1
+                continue
+
             catalog_row = ProductCatalog(
                 asin=product["asin"],
                 country_code=country_code,
@@ -58,10 +68,11 @@ def sync_product_catalog(country_code: str = "US"):
 
             if inserted % 10000 == 0:
                 db.commit()
-                logger.info("  Inserted %d rows...", inserted)
+                logger.info("  Inserted %d rows, skipped %d duplicates...", inserted, skipped_dups)
 
         db.commit()
-        logger.info("Catalog sync complete: %d products inserted for %s", inserted, country_code)
+        logger.info("Catalog sync complete: %d products inserted, %d duplicates skipped for %s",
+                   inserted, skipped_dups, country_code)
 
         # Return stats
         total = db.query(ProductCatalog).filter(
