@@ -74,8 +74,12 @@ def _migrate_archer_product_day(engine):
 def _purge_unused_data():
     """
     One-time startup cleanup: remove non-US archer rows and all product_catalog
-    rows that were written during the multi-geo experiment.  Uses an in-memory
-    journal so this works even when the volume is nearly full.
+    rows that were written during the multi-geo experiment.
+
+    VACUUM is intentionally omitted here — it can take several minutes on a
+    large SQLite file, blocking the health endpoint and causing Railway to
+    mark the deployment as failed. The DELETE operations are fast and free
+    the data; SQLite marks those pages as free and reuses them automatically.
     """
     import os
     import sqlite3 as _sqlite3
@@ -87,17 +91,13 @@ def _purge_unused_data():
         return  # fresh DB, nothing to purge
 
     try:
-        conn = _sqlite3.connect(db_path, timeout=30)
+        conn = _sqlite3.connect(db_path, timeout=10)
         conn.execute("PRAGMA journal_mode=MEMORY")
         cur = conn.execute("DELETE FROM product_catalog")
         pc_deleted = cur.rowcount
         cur = conn.execute("DELETE FROM archer_product_day WHERE geo != 'US'")
         non_us_deleted = cur.rowcount
         conn.commit()
-        try:
-            conn.execute("VACUUM")
-        except Exception:
-            pass  # VACUUM may fail if disk is still too full — safe to skip
         conn.close()
         if pc_deleted or non_us_deleted:
             logger.info(
