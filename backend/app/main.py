@@ -208,6 +208,55 @@ def _migrate_archer_link_type(engine):
     logger.info("archer_product_day link_type migration complete.")
 
 
+def _cleanup_stuck_scans(engine):
+    """
+    Reset any discovery scans that are stuck in 'running' state.
+    A scan is considered stuck if it hasn't been updated in the last 10 minutes.
+    This can happen if the scan thread crashed or the app was restarted mid-scan.
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+
+    cutoff = datetime.utcnow() - timedelta(minutes=10)
+
+    with engine.begin() as conn:
+        # Check for stuck Archer scans
+        archer_stuck = conn.execute(text(
+            "SELECT COUNT(*) FROM discovery_scan "
+            "WHERE archer_status = 'running' AND "
+            "      (archer_finished_at IS NULL OR archer_finished_at < :cutoff)"
+        ), {"cutoff": cutoff}).scalar()
+
+        if archer_stuck:
+            logger.info("Cleaning up %d stuck Archer scans...", archer_stuck)
+            conn.execute(text(
+                "UPDATE discovery_scan "
+                "SET archer_status = 'error', "
+                "    archer_error = 'Scan was interrupted (app restarted or thread crashed)', "
+                "    archer_finished_at = CURRENT_TIMESTAMP "
+                "WHERE archer_status = 'running' AND "
+                "      (archer_finished_at IS NULL OR archer_finished_at < :cutoff)"
+            ), {"cutoff": cutoff})
+
+        # Check for stuck Rank scans
+        rank_stuck = conn.execute(text(
+            "SELECT COUNT(*) FROM discovery_scan "
+            "WHERE rank_status = 'running' AND "
+            "      (rank_finished_at IS NULL OR rank_finished_at < :cutoff)"
+        ), {"cutoff": cutoff}).scalar()
+
+        if rank_stuck:
+            logger.info("Cleaning up %d stuck Rank scans...", rank_stuck)
+            conn.execute(text(
+                "UPDATE discovery_scan "
+                "SET rank_status = 'error', "
+                "    rank_error = 'Scan was interrupted (app restarted or thread crashed)', "
+                "    rank_finished_at = CURRENT_TIMESTAMP "
+                "WHERE rank_status = 'running' AND "
+                "      (rank_finished_at IS NULL OR rank_finished_at < :cutoff)"
+            ), {"cutoff": cutoff})
+
+
 def _migrate_discovery_schema(engine):
     """
     Drop and recreate discovery_scan / discovery_candidate / discovery_result
@@ -339,35 +388,56 @@ async def lifespan(app: FastAPI):
     # ── Startup ────────────────────────────────────────────────────────────────
     logger.info("Starting up Ads Dashboard backend...")
 
-    # Purge bloated data BEFORE opening SQLAlchemy (raw connection, memory journal)
-    _purge_unused_data()
-
-    # Create tables if they don't exist yet
+    # Create tables if they don't exist yet (synchronous, required for app startup)
     from .database import engine, Base
     from . import models  # noqa: F401
-
-    # Run migrations before create_all so existing tables are updated first
-    _migrate_archer_product_day(engine)
-    _migrate_google_ads_country_code(engine)
-    _migrate_google_ads_campaign_type(engine)
-    _migrate_campaign_job_campaign_type(engine)
-    _migrate_attribution_link_cache_campaign_type(engine)
-    _ensure_test_campaign_columns(engine)
-    _migrate_archer_total_sales_usd(engine)
-    _migrate_archer_link_type(engine)  # separate brand vs amazon revenue rows
-    _backfill_null_asins(engine)  # fix [Brand]/[Amazon] ASIN extraction regression
-    _migrate_discovery_schema(engine)  # rebuild discovery tables if old single-phase schema
-
     Base.metadata.create_all(bind=engine)
+    logger.info("Database schema ready.")
 
-    # Start 4-hour scheduler (Archer only — Google Ads data comes via CSV upload)
+    # Start 4-hour scheduler (required before background tasks)
     start_scheduler()
 
-    # Run initial Archer sync in background so startup is non-blocking
+    # Move migrations, purge, and initial syncs to background threads
+    # so /api/health responds immediately and Railway healthcheck succeeds.
     import threading
-    def _startup_sync():
+
+    def _run_startup_tasks():
+        """Run all blocking startup tasks in the background."""
+        try:
+            # Reset any scans that were stuck in 'running' state
+            logger.info("Checking for stuck scans...")
+            _cleanup_stuck_scans(engine)
+        except Exception:
+            logger.exception("Stuck scan cleanup failed (non-fatal)")
+
+        try:
+            # Purge bloated data (may wait on locks from old Railway instance)
+            logger.info("Running startup cleanup...")
+            _purge_unused_data()
+        except Exception:
+            logger.exception("Startup purge failed (non-fatal)")
+
+        # Run all migrations (each may wait on locks)
+        try:
+            logger.info("Running database migrations...")
+            _migrate_archer_product_day(engine)
+            _migrate_google_ads_country_code(engine)
+            _migrate_google_ads_campaign_type(engine)
+            _migrate_campaign_job_campaign_type(engine)
+            _migrate_attribution_link_cache_campaign_type(engine)
+            _ensure_test_campaign_columns(engine)
+            _migrate_archer_total_sales_usd(engine)
+            _migrate_archer_link_type(engine)
+            _backfill_null_asins(engine)
+            _migrate_discovery_schema(engine)
+            logger.info("All migrations complete.")
+        except Exception:
+            logger.exception("Migrations failed (non-fatal)")
+
+        # Run initial Archer sync
         from .services.sync_service import sync_archer, verify_warned_asins
         try:
+            logger.info("Running initial Archer sync...")
             sync_archer()
         except Exception:
             logger.exception("Startup Archer sync failed (non-fatal)")
@@ -376,16 +446,16 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Startup ASIN verification failed (non-fatal)")
 
-    threading.Thread(target=_startup_sync, daemon=True, name="startup-sync").start()
+        # Resume any campaign jobs that were in-progress when the server last stopped
+        from .services.campaign_generator import resume_pending_jobs
+        try:
+            resume_pending_jobs()
+        except Exception:
+            logger.exception("Failed to resume campaign jobs (non-fatal)")
 
-    # Resume any campaign jobs that were in-progress when the server last stopped
-    from .services.campaign_generator import resume_pending_jobs
-    try:
-        resume_pending_jobs()
-    except Exception:
-        logger.exception("Failed to resume campaign jobs (non-fatal)")
+    threading.Thread(target=_run_startup_tasks, daemon=True, name="startup-tasks").start()
 
-    yield  # app is running
+    yield  # app is running (healthcheck can respond immediately)
 
     # ── Shutdown ───────────────────────────────────────────────────────────────
     stop_scheduler()

@@ -249,11 +249,29 @@ def get_results(hide_existing: bool = Query(False)):
 
 @router.post("/scan/stop")
 def stop_scan():
-    """Signal the currently running scan to stop at the next page boundary."""
-    if not is_archer_running() and not is_rank_running():
-        raise HTTPException(status_code=409, detail="No scan is currently running.")
-    request_stop()
-    return {"message": "Stop signal sent. Scan will halt at the next checkpoint."}
+    """Signal the currently running scan to stop at the next page boundary.
+
+    Checks the database state, not global flags, so it works even if a scan
+    thread crashed or the app was restarted mid-scan.
+    """
+    db = SessionLocal()
+    try:
+        # Find the most recent scan
+        scan = db.query(DiscoveryScan).order_by(DiscoveryScan.id.desc()).first()
+
+        # Check if either phase is running according to the database
+        if not scan or (scan.archer_status not in ("running", "idle") and
+                       scan.rank_status not in ("running", "idle")):
+            raise HTTPException(status_code=409, detail="No scan is currently running.")
+
+        # If database says it's running, signal the stop
+        if scan.archer_status == "running" or scan.rank_status == "running":
+            request_stop()
+            return {"message": "Stop signal sent. Scan will halt at the next checkpoint."}
+        else:
+            raise HTTPException(status_code=409, detail="No scan is currently running.")
+    finally:
+        db.close()
 
 
 @router.get("/scan/latest", response_model=Optional[ScanStatus])
