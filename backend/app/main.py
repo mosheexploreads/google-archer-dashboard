@@ -92,7 +92,7 @@ def _purge_unused_data():
 
     try:
         conn = _sqlite3.connect(db_path, timeout=10)
-        conn.execute("PRAGMA journal_mode=MEMORY")
+        # Note: no PRAGMA journal_mode=MEMORY — conflicts with WAL mode set by SQLAlchemy
         cur = conn.execute("DELETE FROM product_catalog")
         pc_deleted = cur.rowcount
         cur = conn.execute("DELETE FROM archer_product_day WHERE geo != 'US'")
