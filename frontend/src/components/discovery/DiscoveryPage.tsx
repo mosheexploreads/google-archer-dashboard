@@ -83,6 +83,7 @@ export function DiscoveryPage() {
   // Settings
   const [minRating, setMinRating] = useState(4.2);
   const [minReviews, setMinReviews] = useState(100);
+  const [resultLimit, setResultLimit] = useState(1000);
   const [maxRank, setMaxRank] = useState(5);
 
   // State
@@ -171,7 +172,7 @@ export function DiscoveryPage() {
     const r = await fetch(`${API}/api/discovery/scan/archer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ min_rating: minRating, min_reviews: minReviews }),
+      body: JSON.stringify({ min_rating: minRating, min_reviews: minReviews, result_limit: resultLimit }),
     });
     if (!r.ok) {
       const d = await r.json();
@@ -254,6 +255,13 @@ export function DiscoveryPage() {
                 disabled={archerRunning}
                 className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm disabled:opacity-50" />
             </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Stop after N results</label>
+              <input type="number" step="100" min="10" value={resultLimit}
+                onChange={e => setResultLimit(parseInt(e.target.value))}
+                disabled={archerRunning}
+                className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm disabled:opacity-50" />
+            </div>
             <button onClick={startArcherScan} disabled={archerRunning}
               className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
               {archerRunning ? "Scanning…" : archerDone ? "Re-scan Archer" : "Scan Archer Catalog"}
@@ -263,23 +271,29 @@ export function DiscoveryPage() {
           {scan && scan.archer_status !== "idle" && (
             <div className="mt-4 space-y-3">
               {archerRunning && <ProgressBar pct={50} />}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="text-lg font-bold text-gray-800">{scan.total_archer.toLocaleString()}</div>
-                  <div className="text-xs text-gray-500">Total in Archer</div>
+                  <div className="text-xs text-gray-500">Scanned from Archer</div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="text-lg font-bold text-gray-800">{scan.total_filtered.toLocaleString()}</div>
                   <div className="text-xs text-gray-500">Passed filter</div>
                 </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-lg font-bold text-gray-800">{scan.result_limit.toLocaleString()}</div>
+                  <div className="text-xs text-gray-500">Limit</div>
+                </div>
                 {archerDone && (
-                  <div className="bg-green-50 rounded-lg p-3">
-                    <div className="text-lg font-bold text-green-700">
-                      {scan.total_filtered > 0
-                        ? `${Math.round(scan.total_filtered / scan.total_archer * 100)}%`
-                        : "0%"}
+                  <div className={`rounded-lg p-3 ${scan.total_filtered >= scan.result_limit ? "bg-amber-50" : "bg-green-50"}`}>
+                    <div className={`text-lg font-bold ${scan.total_filtered >= scan.result_limit ? "text-amber-700" : "text-green-700"}`}>
+                      {scan.total_filtered >= scan.result_limit ? "Stopped early" : "Full scan"}
                     </div>
-                    <div className="text-xs text-gray-500">Pass rate</div>
+                    <div className="text-xs text-gray-500">
+                      {scan.total_filtered >= scan.result_limit
+                        ? `${scan.total_archer.toLocaleString()} scanned`
+                        : `${Math.round(scan.total_filtered / Math.max(scan.total_archer,1) * 100)}% pass rate`}
+                    </div>
                   </div>
                 )}
               </div>

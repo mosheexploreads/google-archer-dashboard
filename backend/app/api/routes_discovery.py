@@ -36,6 +36,7 @@ router = APIRouter(prefix="/api/discovery")
 class ArcherScanRequest(BaseModel):
     min_rating: float = 4.2
     min_reviews: int = 100
+    result_limit: int = 1000  # stop after N qualifying products found
 
 
 class RankScanRequest(BaseModel):
@@ -48,6 +49,7 @@ class ScanStatus(BaseModel):
     archer_status: str
     min_rating: float
     min_reviews: int
+    result_limit: int
     total_archer: int
     total_filtered: int
     archer_started_at: Optional[str]
@@ -110,6 +112,7 @@ def start_archer_scan(req: ArcherScanRequest):
             archer_status="running",
             min_rating=req.min_rating,
             min_reviews=req.min_reviews,
+            result_limit=req.result_limit,
             rank_status="idle",
             max_rank=5,
             archer_started_at=datetime.utcnow(),
@@ -273,6 +276,7 @@ def _to_status(scan: DiscoveryScan) -> ScanStatus:
         archer_status=scan.archer_status,
         min_rating=scan.min_rating or 4.2,
         min_reviews=scan.min_reviews or 100,
+        result_limit=scan.result_limit or 1000,
         total_archer=scan.total_archer or 0,
         total_filtered=scan.total_filtered or 0,
         archer_started_at=str(scan.archer_started_at) if scan.archer_started_at else None,

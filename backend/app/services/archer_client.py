@@ -157,6 +157,52 @@ class ArcherClient:
             })
         return normalised
 
+    def fetch_products_paged(self, country_code: str):
+        """
+        Generator — yields one page (list of raw dicts) at a time.
+        Lets callers stop early without fetching the entire catalog.
+        """
+        with httpx.Client() as client:
+            token = self._get_token(client)
+            headers = {"Authorization": f"Bearer {token}"}
+            skip = 0
+            limit = 100
+            page_num = 0
+            while True:
+                resp = client.get(
+                    f"{self._base_url}/getproducts",
+                    params={"country_code": country_code, "skip": skip, "limit": limit},
+                    headers=headers,
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                if isinstance(data, list):
+                    rows = data
+                else:
+                    rows = next(
+                        (data[k] for k in ("product_catalog", "data", "results", "rows", "items", "products")
+                         if k in data and isinstance(data[k], list)),
+                        []
+                    )
+
+                if not rows:
+                    break
+
+                if page_num == 0:
+                    logger.info(
+                        "Archer /getproducts [%s] first page: %d rows, fields: %s",
+                        country_code, len(rows), list(rows[0].keys()) if rows else [],
+                    )
+
+                yield rows
+
+                if len(rows) < limit:
+                    break
+                skip += len(rows)
+                page_num += 1
+
     def fetch_products(self, country_code: str) -> List[Dict[str, Any]]:
         """
         Fetch product catalog for a given country code via GET /getproducts.

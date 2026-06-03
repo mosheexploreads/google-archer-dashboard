@@ -64,11 +64,49 @@ def run_archer_scan(scan_id: int):
         scan.archer_started_at = datetime.utcnow()
         db.commit()
 
-        # Fetch full catalog from Archer (US)
-        logger.info("Discovery scan %d Phase 1: fetching Archer catalog...", scan_id)
+        # Fetch Archer catalog page by page — stop as soon as result_limit qualifying
+        # products are found. For a 200K catalog this avoids fetching everything.
+        min_rating  = scan.min_rating or 4.2
+        min_reviews = scan.min_reviews or 100
+        result_limit = scan.result_limit or 1000
+
+        logger.info(
+            "Discovery scan %d Phase 1: fetching Archer catalog (limit %d qualifying)...",
+            scan_id, result_limit,
+        )
+
+        existing_asins = _get_existing_campaign_asins(db)
+
+        total_scanned = 0
+        qualified = []
+        stopped_early = False
+
         try:
             archer = ArcherClient()
-            products = archer.fetch_products("US")
+            for page in archer.fetch_products_paged("US"):
+                total_scanned += len(page)
+                scan.total_archer = total_scanned
+                db.commit()
+
+                for product in page:
+                    if (product.get("rating") or 0) >= min_rating \
+                            and (product.get("review_count") or 0) >= min_reviews:
+                        asin = (product.get("asin") or "").upper()
+                        if not asin:
+                            continue
+                        qualified.append((asin, product))
+                        if len(qualified) >= result_limit:
+                            stopped_early = True
+                            break
+
+                if stopped_early:
+                    logger.info(
+                        "Discovery scan %d: reached limit of %d qualifying products "
+                        "after scanning %d total — stopping early.",
+                        scan_id, result_limit, total_scanned,
+                    )
+                    break
+
         except Exception as exc:
             logger.error("Discovery scan %d Phase 1: Archer fetch failed: %s", scan_id, exc)
             scan.archer_status = "error"
@@ -77,27 +115,8 @@ def run_archer_scan(scan_id: int):
             db.commit()
             return
 
-        scan.total_archer = len(products)
-        db.commit()
-        logger.info("Discovery scan %d: fetched %d Archer products", scan_id, len(products))
-
-        # Filter by rating / review_count
-        min_rating = scan.min_rating or 4.2
-        min_reviews = scan.min_reviews or 100
-
-        existing_asins = _get_existing_campaign_asins(db)
-
-        qualified = [
-            p for p in products
-            if (p.get("rating") or 0) >= min_rating
-            and (p.get("review_count") or 0) >= min_reviews
-        ]
-
-        # Save candidates
-        for p in qualified:
-            asin = (p.get("asin") or "").upper()
-            if not asin:
-                continue
+        # Save candidates to DB
+        for asin, p in qualified:
             db.add(DiscoveryCandidate(
                 scan_id=scan_id,
                 asin=asin,
@@ -115,8 +134,10 @@ def run_archer_scan(scan_id: int):
         scan.archer_finished_at = datetime.utcnow()
         db.commit()
         logger.info(
-            "Discovery scan %d Phase 1 complete: %d / %d passed filter",
-            scan_id, len(qualified), len(products),
+            "Discovery scan %d Phase 1 complete: %d qualifying products found "
+            "(scanned %d total%s)",
+            scan_id, len(qualified), total_scanned,
+            ", stopped early" if stopped_early else "",
         )
 
     except Exception as exc:

@@ -168,8 +168,9 @@ class DiscoveryScan(Base):
     archer_status = Column(String, nullable=False, default="idle")  # idle|running|complete|error
     min_rating = Column(Float, default=4.2)
     min_reviews = Column(Integer, default=100)
-    total_archer = Column(Integer, default=0)    # total products in Archer
-    total_filtered = Column(Integer, default=0)  # passed rating/review filter
+    result_limit = Column(Integer, default=1000)  # stop after N qualifying products found
+    total_archer = Column(Integer, default=0)     # total products scanned from Archer (may stop early)
+    total_filtered = Column(Integer, default=0)   # passed rating/review filter
     archer_started_at = Column(DateTime, nullable=True)
     archer_finished_at = Column(DateTime, nullable=True)
     archer_error = Column(Text, nullable=True)

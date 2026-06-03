@@ -217,8 +217,8 @@ def _migrate_discovery_schema(engine):
     if "discovery_scan" not in insp.get_table_names():
         return  # create_all will build fresh tables
     existing_cols = {c["name"] for c in insp.get_columns("discovery_scan")}
-    if "archer_status" in existing_cols:
-        return  # already on new schema
+    if "archer_status" in existing_cols and "result_limit" in existing_cols:
+        return  # already on latest schema
     logger.info("Rebuilding discovery tables to two-phase schema...")
     with engine.begin() as conn:
         for tbl in ("discovery_result", "discovery_candidate", "discovery_scan"):
