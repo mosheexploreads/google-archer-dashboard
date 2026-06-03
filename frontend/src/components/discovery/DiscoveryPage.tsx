@@ -7,6 +7,7 @@ interface ScanStatus {
   archer_status: "idle" | "running" | "complete" | "error";
   min_rating: number;
   min_reviews: number;
+  result_limit: number;
   total_archer: number;
   total_filtered: number;
   archer_started_at: string | null;
