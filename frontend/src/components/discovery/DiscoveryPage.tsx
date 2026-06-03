@@ -4,7 +4,7 @@ const API = "";
 
 interface ScanStatus {
   id: number;
-  archer_status: "idle" | "running" | "complete" | "error";
+  archer_status: "idle" | "running" | "complete" | "stopped" | "error";
   min_rating: number;
   min_reviews: number;
   result_limit: number;
@@ -13,7 +13,7 @@ interface ScanStatus {
   archer_started_at: string | null;
   archer_finished_at: string | null;
   archer_error: string | null;
-  rank_status: "idle" | "running" | "complete" | "error";
+  rank_status: "idle" | "running" | "complete" | "stopped" | "error";
   max_rank: number;
   total_ranked: number;
   total_found: number;
