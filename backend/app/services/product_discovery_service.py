@@ -94,8 +94,19 @@ def run_archer_scan(scan_id: int):
         stopped_early = False
 
         try:
-            archer = ArcherClient()
-            for page in archer.fetch_products_paged("US"):
+            # Read from local product_catalog instead of Archer API
+            # This lets us test the filter logic against known data
+            from ..models import ProductCatalog
+            all_products = db.query(ProductCatalog).filter(
+                ProductCatalog.country_code == 'US'
+            ).all()
+
+            logger.info("Reading %d products from local catalog...", len(all_products))
+
+            # Simulate pages of 100 products
+            page_size = 100
+            for page_idx in range(0, len(all_products), page_size):
+                page = all_products[page_idx:page_idx + page_size]
                 # Check for user-requested stop between pages
                 if _stop_event.is_set():
                     logger.info("Discovery scan %d: stop requested — halting after %d scanned.", scan_id, total_scanned)
@@ -109,12 +120,26 @@ def run_archer_scan(scan_id: int):
                 db.commit()
 
                 for product in page:
-                    if (product.get("rating") or 0) >= min_rating \
-                            and (product.get("review_count") or 0) >= min_reviews:
-                        asin = (product.get("asin") or "").upper()
+                    # product is a ProductCatalog object (from local DB)
+                    rating = product.rating or 0
+                    review_count = product.review_count or 0
+
+                    if rating >= min_rating and review_count >= min_reviews:
+                        asin = (product.asin or "").upper()
                         if not asin:
                             continue
-                        qualified.append((asin, product))
+
+                        # Convert ProductCatalog to dict for compatibility
+                        product_dict = {
+                            "asin": product.asin,
+                            "product_name": product.product_name,
+                            "rating": product.rating,
+                            "review_count": product.review_count,
+                            "price": product.price,
+                            "image_url": product.image_url,
+                            "affiliate_url": product.affiliate_url,
+                        }
+                        qualified.append((asin, product_dict))
                         if len(qualified) >= result_limit:
                             stopped_early = True
                             break
@@ -128,9 +153,9 @@ def run_archer_scan(scan_id: int):
                     break
 
         except Exception as exc:
-            logger.error("Discovery scan %d Phase 1: Archer fetch failed: %s", scan_id, exc)
+            logger.error("Discovery scan %d Phase 1: Catalog read failed: %s", scan_id, exc)
             scan.archer_status = "error"
-            scan.archer_error = f"Archer fetch failed: {exc}"
+            scan.archer_error = f"Catalog read failed: {exc}"
             scan.archer_finished_at = datetime.utcnow()
             db.commit()
             return
