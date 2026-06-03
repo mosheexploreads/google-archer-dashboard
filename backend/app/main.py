@@ -393,6 +393,7 @@ from .api.routes_testing import router as testing_router
 from .api.routes_catalog import router as catalog_router
 from .api.routes_campaigns import router as campaigns_router
 from .api.routes_campaign_create import router as campaign_create_router
+from .api.routes_discovery import router as discovery_router
 
 app.include_router(health_router, prefix="/api", tags=["health"])
 app.include_router(sync_router, tags=["sync"])
@@ -402,6 +403,7 @@ app.include_router(testing_router, tags=["testing"])
 app.include_router(catalog_router, tags=["catalog"])
 app.include_router(campaigns_router, tags=["campaigns"])
 app.include_router(campaign_create_router, tags=["campaign_creator"])
+app.include_router(discovery_router, tags=["discovery"])
 
 # Serve built React frontend (production only — not present in local dev)
 import os

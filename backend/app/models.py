@@ -154,6 +154,43 @@ class CampaignJobItem(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class DiscoveryScan(Base):
+    """One row per catalog discovery scan run."""
+    __tablename__ = "discovery_scan"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String, nullable=False, default="running")  # running | complete | error
+    min_rating = Column(Float, default=4.2)
+    min_reviews = Column(Integer, default=100)
+    max_rank = Column(Integer, default=5)
+    total_archer = Column(Integer, default=0)   # total products fetched from Archer
+    total_filtered = Column(Integer, default=0) # passed rating/review filter
+    total_ranked = Column(Integer, default=0)   # checked against Rainforest
+    total_found = Column(Integer, default=0)    # qualified (top N in subcategory)
+    started_at = Column(DateTime, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+
+class DiscoveryResult(Base):
+    """One row per qualified product found during a discovery scan."""
+    __tablename__ = "discovery_result"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scan_id = Column(Integer, ForeignKey("discovery_scan.id"), nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    product_name = Column(String, nullable=True)
+    rating = Column(Float, nullable=True)
+    review_count = Column(Integer, nullable=True)
+    price = Column(Float, nullable=True)
+    image_url = Column(String, nullable=True)
+    affiliate_url = Column(String, nullable=True)
+    subcategory = Column(String, nullable=True)   # best subcategory name
+    rank = Column(Integer, nullable=True)          # rank within that subcategory
+    has_campaign = Column(Integer, default=0)      # 1 if already running a campaign
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class SyncLog(Base):
     """Tracks each sync attempt."""
     __tablename__ = "sync_log"

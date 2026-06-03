@@ -13,12 +13,13 @@ import { TestingPage } from "./components/testing/TestingPage";
 import { CatalogPage } from "./components/catalog/CatalogPage";
 import { CampaignsPage } from "./components/campaigns/CampaignsPage";
 import { CreateCampaignsPage } from "./components/campaigns/CreateCampaignsPage";
+import { DiscoveryPage } from "./components/discovery/DiscoveryPage";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRefresh } from "./hooks/useRefresh";
 import { useWarnings } from "./hooks/useWarnings";
 import type { DateRange, GroupBy, DateRow, CampaignRow } from "./types";
 
-type Tab = "dashboard" | "testing" | "catalog" | "campaigns" | "create";
+type Tab = "dashboard" | "testing" | "catalog" | "campaigns" | "create" | "discover";
 
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "Dashboard",
@@ -26,6 +27,7 @@ const TAB_LABELS: Record<Tab, string> = {
   catalog: "Product Catalog",
   campaigns: "Campaigns",
   create: "Create Campaigns",
+  discover: "Discover",
 };
 
 function daysAgo(n: number): string {
@@ -67,7 +69,7 @@ export default function App() {
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
       {/* Tab navigation */}
       <div className="flex gap-1 border-b border-gray-200 -mb-2">
-        {(["dashboard", "testing", "create"] as Tab[]).map((t) => (
+        {(["dashboard", "testing", "create", "discover"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -86,6 +88,7 @@ export default function App() {
       {tab === "create" && <CreateCampaignsPage />}
       {tab === "catalog" && <CatalogPage />}
       {tab === "campaigns" && <CampaignsPage />}
+      {tab === "discover" && <DiscoveryPage />}
 
       {tab === "dashboard" && <>
       {/* Controls row */}
