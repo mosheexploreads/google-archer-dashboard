@@ -332,6 +332,7 @@ def _safe_num(v) -> Optional[float]:
 
 def _safe_int(v) -> Optional[int]:
     try:
-        return int(v) if v is not None else None
+        # Use int(float(v)) to handle string floats like "522.0" from Archer API
+        return int(float(v)) if v is not None else None
     except (TypeError, ValueError):
         return None
