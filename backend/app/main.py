@@ -206,6 +206,26 @@ def _migrate_archer_link_type(engine):
     logger.info("archer_product_day link_type migration complete.")
 
 
+def _migrate_discovery_schema(engine):
+    """
+    Drop and recreate discovery_scan / discovery_candidate / discovery_result
+    if the old single-phase schema is detected (missing archer_status column).
+    Safe because these tables are always empty on first use.
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "discovery_scan" not in insp.get_table_names():
+        return  # create_all will build fresh tables
+    existing_cols = {c["name"] for c in insp.get_columns("discovery_scan")}
+    if "archer_status" in existing_cols:
+        return  # already on new schema
+    logger.info("Rebuilding discovery tables to two-phase schema...")
+    with engine.begin() as conn:
+        for tbl in ("discovery_result", "discovery_candidate", "discovery_scan"):
+            conn.execute(text(f"DROP TABLE IF EXISTS {tbl}"))
+    logger.info("Discovery tables dropped — create_all will rebuild them.")
+
+
 def _backfill_null_asins(engine):
     """
     One-time fix: re-extract ASINs for google_ads_campaign_day rows where asin IS NULL.
@@ -334,6 +354,7 @@ async def lifespan(app: FastAPI):
     _migrate_archer_total_sales_usd(engine)
     _migrate_archer_link_type(engine)  # separate brand vs amazon revenue rows
     _backfill_null_asins(engine)  # fix [Brand]/[Amazon] ASIN extraction regression
+    _migrate_discovery_schema(engine)  # rebuild discovery tables if old single-phase schema
 
     Base.metadata.create_all(bind=engine)
 

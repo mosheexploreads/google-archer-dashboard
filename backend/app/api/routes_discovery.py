@@ -1,9 +1,16 @@
 """
-Product discovery endpoints.
+Product discovery endpoints — two independent phases.
 
-POST /api/discovery/scan          — start a new scan (background)
-GET  /api/discovery/scan/latest   — latest scan status + progress
-GET  /api/discovery/results       — qualified products from latest complete scan
+Phase 1 (Archer):
+  POST /api/discovery/scan/archer    — start Archer catalog scan
+  GET  /api/discovery/candidates     — filtered products from Phase 1
+
+Phase 2 (Rainforest ranking):
+  POST /api/discovery/scan/rank      — start ranking check on Phase 1 results
+  GET  /api/discovery/results        — top-N qualified products from Phase 2
+
+Shared:
+  GET  /api/discovery/scan/latest    — full status of both phases
 """
 import logging
 import threading
@@ -14,38 +21,51 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from ..database import SessionLocal
-from ..models import DiscoveryScan, DiscoveryResult
-from ..services.product_discovery_service import run_discovery_scan, is_running
+from ..models import DiscoveryScan, DiscoveryCandidate, DiscoveryResult
+from ..services.product_discovery_service import (
+    run_archer_scan, run_rank_scan,
+    is_archer_running, is_rank_running,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/discovery")
 
 
-# ── Request / Response schemas ────────────────────────────────────────────────
+# ── Schemas ───────────────────────────────────────────────────────────────────
 
-class ScanRequest(BaseModel):
+class ArcherScanRequest(BaseModel):
     min_rating: float = 4.2
     min_reviews: int = 100
+
+
+class RankScanRequest(BaseModel):
     max_rank: int = 5
 
 
 class ScanStatus(BaseModel):
     id: int
-    status: str
+    # Phase 1
+    archer_status: str
     min_rating: float
     min_reviews: int
-    max_rank: int
     total_archer: int
     total_filtered: int
+    archer_started_at: Optional[str]
+    archer_finished_at: Optional[str]
+    archer_error: Optional[str]
+    # Phase 2
+    rank_status: str
+    max_rank: int
     total_ranked: int
     total_found: int
-    started_at: str
-    finished_at: Optional[str]
-    error: Optional[str]
-    progress_pct: float   # 0–100
+    rank_started_at: Optional[str]
+    rank_finished_at: Optional[str]
+    rank_error: Optional[str]
+    # Derived
+    rank_progress_pct: float
 
 
-class DiscoveryProductRow(BaseModel):
+class ProductRow(BaseModel):
     id: int
     asin: str
     product_name: Optional[str]
@@ -54,88 +74,155 @@ class DiscoveryProductRow(BaseModel):
     price: Optional[float]
     image_url: Optional[str]
     affiliate_url: Optional[str]
-    subcategory: Optional[str]
-    rank: Optional[int]
     has_campaign: bool
 
 
-class DiscoveryResultsResponse(BaseModel):
+class RankedProductRow(ProductRow):
+    subcategory: Optional[str]
+    rank: Optional[int]
+
+
+class CandidatesResponse(BaseModel):
     scan_id: int
     total: int
-    new_only: int   # without existing campaigns
-    products: List[DiscoveryProductRow]
+    new_only: int
+    products: List[ProductRow]
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+class ResultsResponse(BaseModel):
+    scan_id: int
+    total: int
+    new_only: int
+    products: List[RankedProductRow]
 
-@router.post("/scan", response_model=ScanStatus)
-def start_scan(req: ScanRequest):
-    """Start a new discovery scan in the background. Returns immediately."""
-    if is_running():
-        raise HTTPException(status_code=409, detail="A scan is already running.")
+
+# ── Phase 1 endpoints ─────────────────────────────────────────────────────────
+
+@router.post("/scan/archer", response_model=ScanStatus)
+def start_archer_scan(req: ArcherScanRequest):
+    """Start Phase 1: fetch & filter Archer catalog. Creates a new scan session."""
+    if is_archer_running():
+        raise HTTPException(status_code=409, detail="An Archer scan is already running.")
 
     db = SessionLocal()
     try:
         scan = DiscoveryScan(
-            status="running",
+            archer_status="running",
             min_rating=req.min_rating,
             min_reviews=req.min_reviews,
-            max_rank=req.max_rank,
-            started_at=datetime.utcnow(),
+            rank_status="idle",
+            max_rank=5,
+            archer_started_at=datetime.utcnow(),
         )
         db.add(scan)
         db.commit()
         db.refresh(scan)
         scan_id = scan.id
 
-        # Fire background thread
-        t = threading.Thread(
-            target=run_discovery_scan,
-            args=(scan_id, req.min_rating, req.min_reviews, req.max_rank),
+        threading.Thread(
+            target=run_archer_scan,
+            args=(scan_id,),
             daemon=True,
-            name=f"discovery-scan-{scan_id}",
-        )
-        t.start()
+            name=f"archer-scan-{scan_id}",
+        ).start()
 
-        return _scan_to_status(scan)
+        return _to_status(scan)
     finally:
         db.close()
 
 
-@router.get("/scan/latest", response_model=Optional[ScanStatus])
-def get_latest_scan():
-    """Return the most recent scan's status and progress."""
+@router.get("/candidates", response_model=CandidatesResponse)
+def get_candidates(hide_existing: bool = Query(False)):
+    """Phase 1 results: products that passed the Archer rating/review filter."""
     db = SessionLocal()
     try:
         from sqlalchemy import text
         row = db.execute(text(
-            "SELECT * FROM discovery_scan ORDER BY id DESC LIMIT 1"
+            "SELECT id FROM discovery_scan "
+            "WHERE archer_status = 'complete' ORDER BY id DESC LIMIT 1"
         )).fetchone()
         if not row:
-            return None
-        scan = db.get(DiscoveryScan, row.id)
-        return _scan_to_status(scan)
+            raise HTTPException(status_code=404, detail="No completed Archer scan. Run Phase 1 first.")
+
+        scan_id = row.id
+        candidates: List[DiscoveryCandidate] = (
+            db.query(DiscoveryCandidate)
+            .filter(DiscoveryCandidate.scan_id == scan_id)
+            .order_by(DiscoveryCandidate.review_count.desc())
+            .all()
+        )
+
+        products = [_candidate_to_row(c) for c in candidates]
+        new_only = sum(1 for p in products if not p.has_campaign)
+
+        if hide_existing:
+            products = [p for p in products if not p.has_campaign]
+
+        return CandidatesResponse(scan_id=scan_id, total=len(candidates), new_only=new_only, products=products)
     finally:
         db.close()
 
 
-@router.get("/results", response_model=DiscoveryResultsResponse)
-def get_results(hide_existing: bool = Query(False)):
-    """
-    Return qualified products from the latest complete scan.
-    Pass hide_existing=true to exclude ASINs that already have campaigns.
-    """
+# ── Phase 2 endpoints ─────────────────────────────────────────────────────────
+
+@router.post("/scan/rank", response_model=ScanStatus)
+def start_rank_scan(req: RankScanRequest):
+    """Start Phase 2: check Amazon BSR via Rainforest for Phase 1 candidates."""
+    if is_rank_running():
+        raise HTTPException(status_code=409, detail="A ranking scan is already running.")
+
     db = SessionLocal()
     try:
         from sqlalchemy import text
-        scan_row = db.execute(text(
-            "SELECT id FROM discovery_scan WHERE status = 'complete' ORDER BY id DESC LIMIT 1"
-        )).fetchone()
-        if not scan_row:
-            raise HTTPException(status_code=404, detail="No completed scan found. Run a scan first.")
 
-        scan_id = scan_row.id
-        from sqlalchemy.orm import Session
+        # Find the latest scan with candidates ready
+        row = db.execute(text(
+            "SELECT id FROM discovery_scan "
+            "WHERE archer_status = 'complete' ORDER BY id DESC LIMIT 1"
+        )).fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="Run Phase 1 (Archer scan) first.")
+
+        scan = db.get(DiscoveryScan, row.id)
+
+        # Clear previous Phase 2 results for this scan
+        db.query(DiscoveryResult).filter(DiscoveryResult.scan_id == scan.id).delete()
+        scan.rank_status = "running"
+        scan.rank_started_at = datetime.utcnow()
+        scan.max_rank = req.max_rank
+        scan.total_ranked = 0
+        scan.total_found = 0
+        scan.rank_error = None
+        db.commit()
+
+        scan_id = scan.id
+        threading.Thread(
+            target=run_rank_scan,
+            args=(scan_id,),
+            daemon=True,
+            name=f"rank-scan-{scan_id}",
+        ).start()
+
+        db.refresh(scan)
+        return _to_status(scan)
+    finally:
+        db.close()
+
+
+@router.get("/results", response_model=ResultsResponse)
+def get_results(hide_existing: bool = Query(False)):
+    """Phase 2 results: products ranked top N in their Amazon subcategory."""
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text
+        row = db.execute(text(
+            "SELECT id FROM discovery_scan "
+            "WHERE rank_status = 'complete' ORDER BY id DESC LIMIT 1"
+        )).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No completed ranking scan. Run Phase 2 first.")
+
+        scan_id = row.id
         results: List[DiscoveryResult] = (
             db.query(DiscoveryResult)
             .filter(DiscoveryResult.scan_id == scan_id)
@@ -149,43 +236,75 @@ def get_results(hide_existing: bool = Query(False)):
         if hide_existing:
             products = [p for p in products if not p.has_campaign]
 
-        return DiscoveryResultsResponse(
-            scan_id=scan_id,
-            total=len(results),
-            new_only=new_only,
-            products=products,
-        )
+        return ResultsResponse(scan_id=scan_id, total=len(results), new_only=new_only, products=products)
+    finally:
+        db.close()
+
+
+# ── Shared ────────────────────────────────────────────────────────────────────
+
+@router.get("/scan/latest", response_model=Optional[ScanStatus])
+def get_latest_scan():
+    """Return status of both phases for the most recent scan session."""
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text
+        row = db.execute(text(
+            "SELECT * FROM discovery_scan ORDER BY id DESC LIMIT 1"
+        )).fetchone()
+        if not row:
+            return None
+        scan = db.get(DiscoveryScan, row.id)
+        return _to_status(scan)
     finally:
         db.close()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _scan_to_status(scan: DiscoveryScan) -> ScanStatus:
-    total_to_check = scan.total_filtered or 0
+def _to_status(scan: DiscoveryScan) -> ScanStatus:
+    total = scan.total_filtered or 0
     ranked = scan.total_ranked or 0
-    pct = (ranked / total_to_check * 100) if total_to_check > 0 else (
-        100.0 if scan.status == "complete" else 0.0
+    pct = (ranked / total * 100) if total > 0 else (
+        100.0 if scan.rank_status == "complete" else 0.0
     )
     return ScanStatus(
         id=scan.id,
-        status=scan.status,
-        min_rating=scan.min_rating,
-        min_reviews=scan.min_reviews,
-        max_rank=scan.max_rank,
+        archer_status=scan.archer_status,
+        min_rating=scan.min_rating or 4.2,
+        min_reviews=scan.min_reviews or 100,
         total_archer=scan.total_archer or 0,
         total_filtered=scan.total_filtered or 0,
+        archer_started_at=str(scan.archer_started_at) if scan.archer_started_at else None,
+        archer_finished_at=str(scan.archer_finished_at) if scan.archer_finished_at else None,
+        archer_error=scan.archer_error,
+        rank_status=scan.rank_status,
+        max_rank=scan.max_rank or 5,
         total_ranked=scan.total_ranked or 0,
         total_found=scan.total_found or 0,
-        started_at=str(scan.started_at),
-        finished_at=str(scan.finished_at) if scan.finished_at else None,
-        error=scan.error,
-        progress_pct=round(min(pct, 100.0), 1),
+        rank_started_at=str(scan.rank_started_at) if scan.rank_started_at else None,
+        rank_finished_at=str(scan.rank_finished_at) if scan.rank_finished_at else None,
+        rank_error=scan.rank_error,
+        rank_progress_pct=round(min(pct, 100.0), 1),
     )
 
 
-def _result_to_row(r: DiscoveryResult) -> DiscoveryProductRow:
-    return DiscoveryProductRow(
+def _candidate_to_row(c: DiscoveryCandidate) -> ProductRow:
+    return ProductRow(
+        id=c.id,
+        asin=c.asin,
+        product_name=c.product_name,
+        rating=c.rating,
+        review_count=c.review_count,
+        price=c.price,
+        image_url=c.image_url,
+        affiliate_url=c.affiliate_url,
+        has_campaign=bool(c.has_campaign),
+    )
+
+
+def _result_to_row(r: DiscoveryResult) -> RankedProductRow:
+    return RankedProductRow(
         id=r.id,
         asin=r.asin,
         product_name=r.product_name,
