@@ -103,8 +103,6 @@ export function DiscoveryPage() {
 
   useEffect(() => {
     if (!scan) return;
-    const phase1Done = scan.archer_status === "complete" || scan.archer_status === "error";
-    const phase2Done = scan.rank_status === "complete" || scan.rank_status === "error";
     const anyRunning = scan.archer_status === "running" || scan.rank_status === "running";
 
     if (anyRunning) {
