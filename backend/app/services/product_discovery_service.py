@@ -185,6 +185,7 @@ def run_rank_scan(scan_id: int):
     """
     global _rank_running
     _rank_running = True
+    _stop_event.clear()  # reset any stop request from previous phase
     db = SessionLocal()
     try:
         scan = db.get(DiscoveryScan, scan_id)

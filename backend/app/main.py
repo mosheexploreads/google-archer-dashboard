@@ -91,8 +91,10 @@ def _purge_unused_data():
         return  # fresh DB, nothing to purge
 
     try:
-        conn = _sqlite3.connect(db_path, timeout=10)
-        # Note: no PRAGMA journal_mode=MEMORY — conflicts with WAL mode set by SQLAlchemy
+        # timeout=30: wait up to 30s for write lock (same as SQLAlchemy timeout)
+        # This direct sqlite3 connection doesn't get PRAGMA busy_timeout,
+        # so we rely on the connection timeout parameter instead.
+        conn = _sqlite3.connect(db_path, timeout=30)
         cur = conn.execute("DELETE FROM product_catalog")
         pc_deleted = cur.rowcount
         cur = conn.execute("DELETE FROM archer_product_day WHERE geo != 'US'")
