@@ -32,10 +32,22 @@ def dashboard_summary(
     date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
     country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
+    asin: str = Query("", description="Filter by ASIN (partial match)"),
+    campaign: str = Query("", description="Filter by campaign name (partial match)"),
+    status: str = Query("", description="Filter by campaign status (Enabled/Paused/Removed)"),
+    campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
+    age_min: Optional[int] = Query(None, description="Min campaign age in days"),
+    age_max: Optional[int] = Query(None, description="Max campaign age in days"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
-    return get_summary(db, date_from, date_to, country_code=country_code)
+    return get_summary(
+        db, date_from, date_to,
+        country_code=country_code,
+        asin_filter=asin, campaign_filter=campaign,
+        status_filter=status, campaign_type_filter=campaign_type,
+        age_min=age_min, age_max=age_max,
+    )
 
 
 @router.get("/campaigns", response_model=CampaignsResponse)
@@ -81,10 +93,23 @@ def dashboard_timeseries(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     groupby: GroupBy = Query("day"),
+    country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
+    asin: str = Query("", description="Filter by ASIN (partial match)"),
+    campaign: str = Query("", description="Filter by campaign name (partial match)"),
+    status: str = Query("", description="Filter by campaign status (Enabled/Paused/Removed)"),
+    campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
+    age_min: Optional[int] = Query(None, description="Min campaign age in days"),
+    age_max: Optional[int] = Query(None, description="Max campaign age in days"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
-    points = get_timeseries(db, date_from, date_to, groupby)
+    points = get_timeseries(
+        db, date_from, date_to, groupby,
+        country_code=country_code,
+        asin_filter=asin, campaign_filter=campaign,
+        status_filter=status, campaign_type_filter=campaign_type,
+        age_min=age_min, age_max=age_max,
+    )
     return TimeseriesResponse(points=points)
 
 

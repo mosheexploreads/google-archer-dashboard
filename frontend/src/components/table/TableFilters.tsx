@@ -26,6 +26,27 @@ interface Props {
 
 export type { StatusOption, CountryOption, TypeOption };
 
+/** Full filter state shared between the campaign table and the dashboard view. */
+export interface DashboardFilters {
+  campaign: string;
+  asin: string;
+  status: StatusOption;
+  country: CountryOption;
+  type: TypeOption;
+  ageMin: number | "";
+  ageMax: number | "";
+}
+
+export const EMPTY_DASHBOARD_FILTERS: DashboardFilters = {
+  campaign: "",
+  asin: "",
+  status: "All",
+  country: "All",
+  type: "All",
+  ageMin: "",
+  ageMax: "",
+};
+
 function parseDay(val: string): number | "" {
   return val === "" ? "" : Math.max(0, parseInt(val, 10) || 0);
 }

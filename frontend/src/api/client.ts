@@ -19,13 +19,38 @@ import type {
 
 const api = axios.create({ baseURL: "/api" });
 
+/** Filters shared by the summary, timeseries (chart + daily table) endpoints. */
+export interface MetricFilters {
+  campaign?: string;
+  asin?: string;
+  status?: string;        // "" | "Enabled" | "Paused" | "Removed"
+  country_code?: string;  // "" | "US" | "UK" | ...
+  campaign_type?: string; // "" | "brand" | "amazon"
+  age_min?: number | null;
+  age_max?: number | null;
+}
+
+/** Build axios params from filters; undefined values are omitted by axios. */
+function filterParams(f?: MetricFilters): Record<string, string | number | undefined> {
+  if (!f) return {};
+  return {
+    campaign: f.campaign || "",
+    asin: f.asin || "",
+    status: f.status || "",
+    country_code: f.country_code || "",
+    campaign_type: f.campaign_type || "",
+    age_min: f.age_min ?? undefined,
+    age_max: f.age_max ?? undefined,
+  };
+}
+
 export async function fetchSummary(
   dateFrom: string,
   dateTo: string,
-  countryCode = ""
+  filters?: MetricFilters
 ): Promise<SummaryData> {
   const { data } = await api.get("/dashboard/summary", {
-    params: { date_from: dateFrom, date_to: dateTo, country_code: countryCode },
+    params: { date_from: dateFrom, date_to: dateTo, ...filterParams(filters) },
   });
   return data;
 }
@@ -72,10 +97,11 @@ export async function fetchCampaignDates(
 export async function fetchTimeseries(
   dateFrom: string,
   dateTo: string,
-  groupby: GroupBy
+  groupby: GroupBy,
+  filters?: MetricFilters
 ): Promise<TimeseriesData> {
   const { data } = await api.get("/dashboard/timeseries", {
-    params: { date_from: dateFrom, date_to: dateTo, groupby },
+    params: { date_from: dateFrom, date_to: dateTo, groupby, ...filterParams(filters) },
   });
   return data;
 }

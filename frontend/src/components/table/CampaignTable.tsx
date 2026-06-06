@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { TableFilters } from "./TableFilters";
-import type { StatusOption, CountryOption, TypeOption } from "./TableFilters";
+import type { DashboardFilters } from "./TableFilters";
 import { DateDrillDown } from "./DateDrillDown";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
 import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir } from "../../types";
@@ -29,6 +29,9 @@ interface Props {
   onExport: (filteredRows: CampaignRow[]) => void;
   /** Shared date-row cache, so ExportModal can access all fetched date data */
   dateDataRef: React.MutableRefObject<Record<string, DateRow[]>>;
+  /** Filter state lifted to App so the whole dashboard shares it. */
+  filters: DashboardFilters;
+  onFiltersChange: (next: DashboardFilters) => void;
 }
 
 const COL_SPAN = 20; // toggle + Campaign + Country + Status + Type + Age + 14 metric columns
@@ -45,14 +48,13 @@ function fmtAge(days: number | null): string {
   return `${(days / 365).toFixed(1)}y`;
 }
 
-export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef }: Props) {
-  const [campaignFilter, setCampaignFilter] = useState("");
-  const [asinFilter, setAsinFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusOption>("All");
-  const [countryFilter, setCountryFilter] = useState<CountryOption>("All");
-  const [typeFilter, setTypeFilter] = useState<TypeOption>("All");
-  const [ageMin, setAgeMin]             = useState<number | "">("");
-  const [ageMax, setAgeMax]             = useState<number | "">("");
+export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange }: Props) {
+  const { campaign: campaignFilter, asin: asinFilter, status: statusFilter,
+          country: countryFilter, type: typeFilter, ageMin, ageMax } = filters;
+  const patch = useCallback(
+    (p: Partial<DashboardFilters>) => onFiltersChange({ ...filters, ...p }),
+    [filters, onFiltersChange]
+  );
   const [sortKey, setSortKey]       = useState<SortKey>("spend_usd");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
   const [expanded, setExpanded]     = useState<Set<string>>(new Set());
@@ -158,13 +160,13 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           typeFilter={typeFilter}
           ageMin={ageMin}
           ageMax={ageMax}
-          onCampaignChange={setCampaignFilter}
-          onAsinChange={setAsinFilter}
-          onStatusChange={setStatusFilter}
-          onCountryChange={setCountryFilter}
-          onTypeChange={setTypeFilter}
-          onAgeMinChange={setAgeMin}
-          onAgeMaxChange={setAgeMax}
+          onCampaignChange={(v) => patch({ campaign: v })}
+          onAsinChange={(v) => patch({ asin: v })}
+          onStatusChange={(v) => patch({ status: v })}
+          onCountryChange={(v) => patch({ country: v })}
+          onTypeChange={(v) => patch({ type: v })}
+          onAgeMinChange={(v) => patch({ ageMin: v })}
+          onAgeMaxChange={(v) => patch({ ageMax: v })}
         />
         <button
           onClick={() => onExport(filtered)}

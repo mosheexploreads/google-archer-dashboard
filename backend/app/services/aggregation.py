@@ -98,6 +98,84 @@ def _archer_join(country_code: str = "") -> str:
         f" AND a.geo = 'US' {link_cond}"
     )
 
+
+# ── Shared dashboard filters (campaign / asin / status / type / age / country) ─
+# These let the summary, chart, and daily-breakdown table reflect the same
+# campaign subset the campaign table filters client-side.
+
+# Latest known status per campaign (status from its most recent dated row).
+_LATEST_STATUS_JOIN = (
+    " LEFT JOIN ("
+    "   SELECT g2.campaign_id, g2.campaign_status"
+    "   FROM google_ads_campaign_day g2"
+    "   INNER JOIN ("
+    "     SELECT campaign_id, MAX(date) AS max_date"
+    "     FROM google_ads_campaign_day"
+    "     WHERE campaign_status IS NOT NULL"
+    "     GROUP BY campaign_id"
+    "   ) ld ON g2.campaign_id = ld.campaign_id AND g2.date = ld.max_date"
+    "   GROUP BY g2.campaign_id"
+    " ) ls ON g.campaign_id = ls.campaign_id"
+)
+
+# First date a campaign was ever seen — used to compute age in days.
+_FIRST_SEEN_JOIN = (
+    " LEFT JOIN ("
+    "   SELECT campaign_id, MIN(date) AS first_seen"
+    "   FROM google_ads_campaign_day"
+    "   GROUP BY campaign_id"
+    " ) fs ON g.campaign_id = fs.campaign_id"
+)
+
+
+def _filter_where(country_code: str = "") -> str:
+    """
+    Leading ' AND ...' WHERE fragment applying the dashboard filters. Mirrors the
+    campaign table's client-side filters so totals stay consistent across views.
+    Requires _LATEST_STATUS_JOIN (ls) and _FIRST_SEEN_JOIN (fs) in the FROM clause.
+    All params are no-ops when empty/NULL, so this is safe to always include.
+    """
+    conds = [
+        "(:f_asin = '' OR g.asin LIKE '%' || :f_asin || '%')",
+        "(:f_campaign = '' OR g.campaign_name LIKE '%' || :f_campaign || '%')",
+        "(:f_status = '' OR COALESCE(ls.campaign_status, '') = :f_status)",
+        "(:f_type = '' OR COALESCE(g.campaign_type, 'brand') = :f_type)",
+        "(:f_age_min IS NULL OR (fs.first_seen IS NOT NULL"
+        "   AND CAST(julianday('now') - julianday(fs.first_seen) AS INTEGER) >= :f_age_min))",
+        "(:f_age_max IS NULL OR (fs.first_seen IS NOT NULL"
+        "   AND CAST(julianday('now') - julianday(fs.first_seen) AS INTEGER) <= :f_age_max))",
+    ]
+    if country_code:
+        # NULL country_code is treated as US, matching the campaign table.
+        conds.append(
+            "(g.country_code = :f_country"
+            " OR (:f_country = 'US' AND g.country_code IS NULL))"
+        )
+    return " AND " + " AND ".join(conds)
+
+
+def _filter_params(
+    asin_filter: str = "",
+    campaign_filter: str = "",
+    status_filter: str = "",
+    campaign_type_filter: str = "",
+    age_min: Optional[int] = None,
+    age_max: Optional[int] = None,
+    country_code: str = "",
+) -> dict:
+    params = {
+        "f_asin": asin_filter or "",
+        "f_campaign": campaign_filter or "",
+        "f_status": status_filter or "",
+        "f_type": campaign_type_filter or "",
+        "f_age_min": age_min,
+        "f_age_max": age_max,
+    }
+    if country_code:
+        params["f_country"] = country_code
+    return params
+
+
 # Map sort_by param to the qualified column expression used in ORDER BY.
 # Unqualified names like "asin" are ambiguous when multiple JOINed tables
 # have the same column, so we use the table alias explicitly.
@@ -126,8 +204,18 @@ _SORT_COL = {
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
-def get_summary(db: Session, date_from: date, date_to: date, country_code: str = "") -> SummaryResponse:
-    country_filter = "AND g.country_code = :country_code" if country_code else ""
+def get_summary(
+    db: Session,
+    date_from: date,
+    date_to: date,
+    country_code: str = "",
+    asin_filter: str = "",
+    campaign_filter: str = "",
+    status_filter: str = "",
+    campaign_type_filter: str = "",
+    age_min: Optional[int] = None,
+    age_max: Optional[int] = None,
+) -> SummaryResponse:
     sql = text(
         "SELECT"
         "  COALESCE(SUM(g.spend_usd), 0)                                  AS spend_usd,"
@@ -140,11 +228,16 @@ def get_summary(db: Session, date_from: date, date_to: date, country_code: str =
         " FROM google_ads_campaign_day g"
         + _archer_join(country_code)
         + _CC_SUBQUERY
-        + f" WHERE g.date BETWEEN :date_from AND :date_to {country_filter}"
+        + _LATEST_STATUS_JOIN
+        + _FIRST_SEEN_JOIN
+        + " WHERE g.date BETWEEN :date_from AND :date_to"
+        + _filter_where(country_code)
     )
     params: dict = {"date_from": date_from, "date_to": date_to}
-    if country_code:
-        params["country_code"] = country_code
+    params.update(_filter_params(
+        asin_filter, campaign_filter, status_filter,
+        campaign_type_filter, age_min, age_max, country_code,
+    ))
     row = db.execute(sql, params).fetchone()
     spend = float(row.spend_usd)
     revenue = float(row.revenue_usd)
@@ -383,6 +476,13 @@ def get_timeseries(
     date_from: date,
     date_to: date,
     groupby: str = "day",
+    country_code: str = "",
+    asin_filter: str = "",
+    campaign_filter: str = "",
+    status_filter: str = "",
+    campaign_type_filter: str = "",
+    age_min: Optional[int] = None,
+    age_max: Optional[int] = None,
 ) -> List[TimeseriesPoint]:
     period_expr = _period_expr(groupby)
 
@@ -411,14 +511,22 @@ def get_timeseries(
         f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas"
         " FROM google_ads_campaign_day g"
-        + _archer_join()
+        + _archer_join(country_code)
         + _CC_SUBQUERY
+        + _LATEST_STATUS_JOIN
+        + _FIRST_SEEN_JOIN
         + " WHERE g.date BETWEEN :date_from AND :date_to"
-        " GROUP BY period"
+        + _filter_where(country_code)
+        + " GROUP BY period"
         " ORDER BY period ASC"
     )
 
-    rows = db.execute(sql, {"date_from": date_from, "date_to": date_to}).fetchall()
+    params: dict = {"date_from": date_from, "date_to": date_to}
+    params.update(_filter_params(
+        asin_filter, campaign_filter, status_filter,
+        campaign_type_filter, age_min, age_max, country_code,
+    ))
+    rows = db.execute(sql, params).fetchall()
 
     return [
         TimeseriesPoint(
