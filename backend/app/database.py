@@ -37,6 +37,17 @@ def _set_sqlite_pragmas(dbapi_conn, _record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+@event.listens_for(SessionLocal, "after_commit")
+def _invalidate_dashboard_cache(_session):
+    """
+    Any committed write (sync, CSV upload, discovery scan, etc.) makes the
+    cached dashboard aggregations stale, so clear them. Read endpoints only
+    SELECT and never commit, so this fires only on real data changes.
+    """
+    from .services.cache import clear
+    clear()
+
+
 class Base(DeclarativeBase):
     pass
 
