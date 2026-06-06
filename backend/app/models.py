@@ -12,6 +12,7 @@ class GoogleAdsCampaignDay(Base):
     campaign_name = Column(String, nullable=False)
     asin = Column(String, nullable=True, index=True)  # extracted at insert time
     country_code = Column(String, nullable=True, index=True)  # e.g. "UK", "DE"; None = US
+    account = Column(String, nullable=True, index=True)  # which Google Ads account (label set at CSV upload)
 
     impressions = Column(Integer, default=0)
     clicks = Column(Integer, default=0)

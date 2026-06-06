@@ -4,7 +4,7 @@ POST /api/upload/google-ads  — accepts a Google Ads CSV report file.
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,7 @@ class UploadResult(BaseModel):
     message: str
 
 
-_MODEL_FIELDS = {"campaign_id", "date", "campaign_name", "asin", "country_code", "campaign_type", "impressions", "clicks", "spend_usd", "campaign_status"}
+_MODEL_FIELDS = {"campaign_id", "date", "campaign_name", "account", "asin", "country_code", "campaign_type", "impressions", "clicks", "spend_usd", "campaign_status"}
 
 
 def _upsert_rows(db: Session, rows: list[dict]) -> int:
@@ -66,16 +66,23 @@ def delete_google_ads_date(report_date: str):
 
 
 @router.post("/google-ads", response_model=UploadResult)
-async def upload_google_ads_csv(file: UploadFile = File(...)):
+async def upload_google_ads_csv(
+    file: UploadFile = File(...),
+    account: str = Form(""),
+):
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    account = account.strip()
+    if not account:
+        raise HTTPException(status_code=422, detail="Account name is required — pick which Google Ads account this report is for.")
 
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:  # 50 MB guard
         raise HTTPException(status_code=400, detail="File too large (max 50 MB)")
 
     try:
-        records = parse_google_ads_csv(content)
+        records = parse_google_ads_csv(content, account)
     except (ValueError, Exception) as e:
         logger.exception("CSV parse failed")
         status = 422 if isinstance(e, ValueError) else 500

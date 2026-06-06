@@ -28,6 +28,7 @@ class CampaignRow(BaseModel):
     campaign_name: str
     asin: Optional[str]
     country_code: Optional[str] = "US"
+    account: Optional[str] = None
     product_name: Optional[str]
     impressions: int
     clicks: int

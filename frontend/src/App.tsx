@@ -63,6 +63,7 @@ export default function App() {
     campaign_type: filters.type === "All" ? "" : filters.type.toLowerCase(),
     age_min: filters.ageMin === "" ? null : filters.ageMin,
     age_max: filters.ageMax === "" ? null : filters.ageMax,
+    account: filters.account === "All" ? "" : filters.account,
   }), [filters]);
 
   // Debounce so typing in the text filters doesn't refetch on every keystroke.

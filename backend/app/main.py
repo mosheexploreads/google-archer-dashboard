@@ -137,6 +137,19 @@ def _migrate_google_ads_campaign_type(engine):
             conn.execute(text("ALTER TABLE google_ads_campaign_day ADD COLUMN campaign_type VARCHAR"))
 
 
+def _migrate_google_ads_account(engine):
+    """Add account column to google_ads_campaign_day (nullable; label set at CSV upload)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "google_ads_campaign_day" not in insp.get_table_names():
+        return
+    existing_cols = {c["name"] for c in insp.get_columns("google_ads_campaign_day")}
+    if "account" not in existing_cols:
+        logger.info("Adding account column to google_ads_campaign_day...")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE google_ads_campaign_day ADD COLUMN account VARCHAR"))
+
+
 def _migrate_campaign_job_campaign_type(engine):
     """Add campaign_type column to campaign_job (defaults to 'brand')."""
     from sqlalchemy import inspect, text
@@ -423,6 +436,7 @@ async def lifespan(app: FastAPI):
             _migrate_archer_product_day(engine)
             _migrate_google_ads_country_code(engine)
             _migrate_google_ads_campaign_type(engine)
+            _migrate_google_ads_account(engine)
             _migrate_campaign_job_campaign_type(engine)
             _migrate_attribution_link_cache_campaign_type(engine)
             _ensure_test_campaign_columns(engine)

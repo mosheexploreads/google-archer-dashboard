@@ -28,6 +28,7 @@ export interface MetricFilters {
   campaign_type?: string; // "" | "brand" | "amazon"
   age_min?: number | null;
   age_max?: number | null;
+  account?: string;       // "" | account label
 }
 
 /** Build axios params from filters; undefined values are omitted by axios. */
@@ -41,6 +42,7 @@ function filterParams(f?: MetricFilters): Record<string, string | number | undef
     campaign_type: f.campaign_type || "",
     age_min: f.age_min ?? undefined,
     age_max: f.age_max ?? undefined,
+    account: f.account || "",
   };
 }
 
@@ -64,7 +66,8 @@ export async function fetchCampaigns(
   campaign = "",
   status = "",
   countryCode = "",
-  campaignType = ""
+  campaignType = "",
+  account = ""
 ): Promise<CampaignsData> {
   const { data } = await api.get("/dashboard/campaigns", {
     params: {
@@ -77,9 +80,15 @@ export async function fetchCampaigns(
       status,
       country_code: countryCode,
       campaign_type: campaignType,
+      account,
     },
   });
   return data;
+}
+
+export async function fetchAccounts(): Promise<string[]> {
+  const { data } = await api.get("/dashboard/accounts");
+  return data.accounts ?? [];
 }
 
 export async function fetchCampaignDates(

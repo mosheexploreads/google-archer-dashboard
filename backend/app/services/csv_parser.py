@@ -86,9 +86,14 @@ def _clean_pct(value: str) -> Optional[float]:
     return n / 100.0
 
 
-def _make_campaign_id(campaign_name: str) -> str:
-    """Stable ID from campaign name (since CSV has no numeric ID)."""
-    return hashlib.md5(campaign_name.strip().lower().encode()).hexdigest()[:16]
+def _make_campaign_id(campaign_name: str, account: str = "") -> str:
+    """
+    Stable ID from campaign name (since CSV has no numeric ID). The account label
+    is mixed in so same-named campaigns in two different accounts don't collide on
+    the (campaign_id, date) primary key.
+    """
+    seed = f"{account.strip().lower()}|{campaign_name.strip().lower()}"
+    return hashlib.md5(seed.encode()).hexdigest()[:16]
 
 
 def _build_col_index(headers: list[str]) -> dict[str, int]:
@@ -140,11 +145,13 @@ def _decode_content(content: bytes) -> tuple[str, str]:
     return text, delim
 
 
-def parse_google_ads_csv(content: bytes) -> list[dict]:
+def parse_google_ads_csv(content: bytes, account: str = "") -> list[dict]:
     """
     Parse a Google Ads CSV report. Returns a list of dicts ready for DB upsert.
     Handles both UTF-8 (Google Ads UI) and UTF-16 (Google Ads Editor) exports,
     and both comma-separated and tab-separated formats.
+    `account` is the label for which Google Ads account this report came from;
+    it's stamped on every row and folded into synthesized campaign IDs.
     Raises ValueError with a descriptive message on bad input.
     """
     text, delim = _decode_content(content)
@@ -219,8 +226,9 @@ def parse_google_ads_csv(content: bytes) -> list[dict]:
             continue
 
         records.append({
-            "campaign_id":      get("campaign_id") or _make_campaign_id(campaign_name),
+            "campaign_id":      get("campaign_id") or _make_campaign_id(campaign_name, account),
             "campaign_name":    campaign_name,
+            "account":          account or None,
             "asin":             asin,
             "country_code":     country_code,
             # ctype = "brand" | "amazon" | None extracted from [Brand]/[Amazon] tag in name.

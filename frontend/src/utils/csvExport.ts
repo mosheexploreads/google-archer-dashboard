@@ -23,6 +23,7 @@ const METRIC_COLUMNS: Column[] = [
 
 const CAMPAIGN_COLUMNS: Column[] = [
   { key: "campaign_name",   label: "Campaign" },
+  { key: "account",         label: "Account" },
   { key: "asin",            label: "ASIN" },
   { key: "current_status",  label: "Status" },
   ...METRIC_COLUMNS,

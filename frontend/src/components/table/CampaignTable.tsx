@@ -34,7 +34,7 @@ interface Props {
   onFiltersChange: (next: DashboardFilters) => void;
 }
 
-const COL_SPAN = 20; // toggle + Campaign + Country + Status + Type + Age + 14 metric columns
+const COL_SPAN = 21; // toggle + Campaign + Account + Country + Status + Type + Age + 14 metric columns
 
 function ageDays(firstSeen: string | null): number | null {
   if (!firstSeen) return null;
@@ -50,7 +50,13 @@ function fmtAge(days: number | null): string {
 
 export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange }: Props) {
   const { campaign: campaignFilter, asin: asinFilter, status: statusFilter,
-          country: countryFilter, type: typeFilter, ageMin, ageMax } = filters;
+          country: countryFilter, type: typeFilter, ageMin, ageMax,
+          account: accountFilter } = filters;
+  const accountOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.account) set.add(r.account);
+    return ["All", ...Array.from(set).sort()];
+  }, [rows]);
   const patch = useCallback(
     (p: Partial<DashboardFilters>) => onFiltersChange({ ...filters, ...p }),
     [filters, onFiltersChange]
@@ -97,6 +103,9 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
       const ct = typeFilter.toLowerCase(); // "brand" | "amazon"
       data = data.filter((r) => (r.campaign_type ?? "brand") === ct);
     }
+    if (accountFilter !== "All") {
+      data = data.filter((r) => r.account === accountFilter);
+    }
     if (ageMin !== "" || ageMax !== "") {
       data = data.filter((r) => {
         const d = ageDays(r.first_seen);
@@ -117,7 +126,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
       }
       return sortDir === "asc" ? av - bv : bv - av;
     });
-  }, [rows, campaignFilter, asinFilter, statusFilter, countryFilter, typeFilter, ageMin, ageMax, sortKey, sortDir]);
+  }, [rows, campaignFilter, asinFilter, statusFilter, countryFilter, typeFilter, accountFilter, ageMin, ageMax, sortKey, sortDir]);
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <span className="ml-1 text-gray-300">↕</span>;
@@ -160,6 +169,8 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           typeFilter={typeFilter}
           ageMin={ageMin}
           ageMax={ageMax}
+          accountFilter={accountFilter}
+          accountOptions={accountOptions}
           onCampaignChange={(v) => patch({ campaign: v })}
           onAsinChange={(v) => patch({ asin: v })}
           onStatusChange={(v) => patch({ status: v })}
@@ -167,6 +178,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           onTypeChange={(v) => patch({ type: v })}
           onAgeMinChange={(v) => patch({ ageMin: v })}
           onAgeMaxChange={(v) => patch({ ageMax: v })}
+          onAccountChange={(v) => patch({ account: v })}
         />
         <button
           onClick={() => onExport(filtered)}
@@ -184,6 +196,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <th className={thSort} style={{ minWidth: 140, maxWidth: 220 }} onClick={() => toggleSort("campaign_name")}>
                 Campaign <SortIcon col="campaign_name" />
               </th>
+              <th className={`${thBase} text-center`} style={{ minWidth: 70 }}>Account</th>
               <th className={`${thBase} text-center`} style={{ minWidth: 46 }}>Country</th>
               <th className={`${thBase} text-center`} style={{ minWidth: 58 }}>Status</th>
               <th className={`${thBase} text-center`} style={{ minWidth: 52 }}>Type</th>
@@ -256,6 +269,15 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                         <div className="font-mono text-gray-400 text-[10px] leading-tight">
                           {row.asin}
                         </div>
+                      )}
+                    </td>
+                    <td className={`${tdBase} text-center`}>
+                      {row.account ? (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+                          {row.account}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-[10px]">—</span>
                       )}
                     </td>
                     <td className={`${tdBase} text-center`}>
@@ -333,10 +355,11 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
               <tr className="border-t-2 border-gray-300" style={{ position: "sticky", bottom: 0, zIndex: 10 }}>
                 <td className="px-2 py-2 bg-gray-50" />
                 <td className="px-2 py-2 text-xs font-semibold text-gray-700 bg-gray-50">Total</td>
-                <td className={tfBase} />
-                <td className={tfBase} />
-                <td className={tfBase} />
-                <td className={tfBase} />
+                <td className={tfBase} />{/* Account */}
+                <td className={tfBase} />{/* Country */}
+                <td className={tfBase} />{/* Status */}
+                <td className={tfBase} />{/* Type */}
+                <td className={tfBase} />{/* Age */}
                 <td className={tfBase}>{fmtNumber(totImpressions)}</td>
                 <td className={tfBase}>{fmtNumber(totClicks)}</td>
                 <td className={tfBase}>{fmtPct(totCtr)}</td>

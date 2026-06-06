@@ -42,6 +42,7 @@ export interface CampaignRow {
   campaign_name: string;
   asin: string | null;
   country_code: string | null;
+  account: string | null;
   product_name: string | null;
   impressions: number;
   clicks: number;

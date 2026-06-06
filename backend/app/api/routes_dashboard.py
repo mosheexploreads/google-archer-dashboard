@@ -10,7 +10,7 @@ from ..schemas import (
 )
 from ..services.aggregation import (
     get_summary, get_campaigns, get_campaign_dates, get_timeseries, get_warnings,
-    get_detailed_export, get_revenue_debug,
+    get_detailed_export, get_revenue_debug, get_accounts,
 )
 from ..utils.date_utils import yesterday, days_ago
 
@@ -38,6 +38,7 @@ def dashboard_summary(
     campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
     age_min: Optional[int] = Query(None, description="Min campaign age in days"),
     age_max: Optional[int] = Query(None, description="Max campaign age in days"),
+    account: str = Query("", description="Filter by Google Ads account label"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -46,7 +47,7 @@ def dashboard_summary(
         country_code=country_code,
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, campaign_type_filter=campaign_type,
-        age_min=age_min, age_max=age_max,
+        age_min=age_min, age_max=age_max, account_filter=account,
     )
 
 
@@ -61,6 +62,7 @@ def dashboard_campaigns(
     status: str = Query("", description="Filter by campaign status (Enabled/Paused/Removed)"),
     country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
     campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
+    account: str = Query("", description="Filter by Google Ads account label"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -69,7 +71,7 @@ def dashboard_campaigns(
         sort_by=sort_by, sort_dir=sort_dir,
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, country_code=country_code,
-        campaign_type_filter=campaign_type,
+        campaign_type_filter=campaign_type, account_filter=account,
     )
     return CampaignsResponse(rows=rows, total=len(rows))
 
@@ -100,6 +102,7 @@ def dashboard_timeseries(
     campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
     age_min: Optional[int] = Query(None, description="Min campaign age in days"),
     age_max: Optional[int] = Query(None, description="Max campaign age in days"),
+    account: str = Query("", description="Filter by Google Ads account label"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -108,9 +111,15 @@ def dashboard_timeseries(
         country_code=country_code,
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, campaign_type_filter=campaign_type,
-        age_min=age_min, age_max=age_max,
+        age_min=age_min, age_max=age_max, account_filter=account,
     )
     return TimeseriesResponse(points=points)
+
+
+@router.get("/accounts")
+def dashboard_accounts(db: Session = Depends(get_db)):
+    """Distinct account labels present in the data (for filter + upload datalist)."""
+    return {"accounts": get_accounts(db)}
 
 
 @router.get("/warnings", response_model=WarningsResponse)

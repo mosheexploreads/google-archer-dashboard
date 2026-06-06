@@ -137,6 +137,7 @@ def _filter_clause(
     campaign_type_filter: str = "",
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
+    account_filter: str = "",
 ) -> tuple:
     """
     Build (extra_joins, where_fragment, params) for the active dashboard filters.
@@ -159,6 +160,9 @@ def _filter_clause(
     if campaign_type_filter:
         conds.append("COALESCE(g.campaign_type, 'brand') = :f_type")
         params["f_type"] = campaign_type_filter
+    if account_filter:
+        conds.append("g.account = :f_account")
+        params["f_account"] = account_filter
     if country_code:
         # NULL country_code is treated as US, matching the campaign table.
         conds.append("(g.country_code = :f_country OR (:f_country = 'US' AND g.country_code IS NULL))")
@@ -219,12 +223,14 @@ def get_summary(
     campaign_type_filter: str = "",
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
+    account_filter: str = "",
 ) -> SummaryResponse:
     key = ("summary", date_from, date_to, country_code, asin_filter,
-           campaign_filter, status_filter, campaign_type_filter, age_min, age_max)
+           campaign_filter, status_filter, campaign_type_filter, age_min, age_max,
+           account_filter)
     return cache.get_or_compute(key, lambda: _summary_uncached(
         db, date_from, date_to, country_code, asin_filter, campaign_filter,
-        status_filter, campaign_type_filter, age_min, age_max,
+        status_filter, campaign_type_filter, age_min, age_max, account_filter,
     ))
 
 
@@ -239,10 +245,11 @@ def _summary_uncached(
     campaign_type_filter: str = "",
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
+    account_filter: str = "",
 ) -> SummaryResponse:
     joins, where, fparams = _filter_clause(
         country_code, asin_filter, campaign_filter,
-        status_filter, campaign_type_filter, age_min, age_max,
+        status_filter, campaign_type_filter, age_min, age_max, account_filter,
     )
     sql = text(
         "SELECT"
@@ -295,12 +302,15 @@ def get_campaigns(
     status_filter: str = "",
     country_code: str = "",
     campaign_type_filter: str = "",
+    account_filter: str = "",
 ) -> List[CampaignRow]:
     key = ("campaigns", date_from, date_to, sort_by, sort_dir, asin_filter,
-           campaign_filter, status_filter, country_code, campaign_type_filter)
+           campaign_filter, status_filter, country_code, campaign_type_filter,
+           account_filter)
     return cache.get_or_compute(key, lambda: _campaigns_uncached(
         db, date_from, date_to, sort_by, sort_dir, asin_filter,
         campaign_filter, status_filter, country_code, campaign_type_filter,
+        account_filter,
     ))
 
 
@@ -315,6 +325,7 @@ def _campaigns_uncached(
     status_filter: str = "",
     country_code: str = "",
     campaign_type_filter: str = "",
+    account_filter: str = "",
 ) -> List[CampaignRow]:
     if sort_by not in _SORT_WHITELIST:
         sort_by = "spend_usd"
@@ -328,6 +339,7 @@ def _campaigns_uncached(
         "  COALESCE(ln.latest_name, g.campaign_name) AS campaign_name,"
         "  MAX(g.asin)                                                           AS asin,"
         "  COALESCE(MAX(g.country_code), 'US')                                  AS country_code,"
+        "  MAX(g.account)                                                       AS account,"
         "  MAX(a.product_name)                                                  AS product_name,"
         "  SUM(g.impressions)                                                   AS impressions,"
         "  SUM(g.clicks)                                                        AS clicks,"
@@ -391,6 +403,7 @@ def _campaigns_uncached(
         "   AND (:campaign = '' OR g.campaign_name LIKE '%' || :campaign || '%')"
         "   AND (:status   = '' OR COALESCE(ls.campaign_status, '') = :status)"
         "   AND (:campaign_type_filter = '' OR COALESCE(g.campaign_type, 'brand') = :campaign_type_filter)"
+        "   AND (:account_filter = '' OR g.account = :account_filter)"
         f"  {country_filter}"
         " GROUP BY g.campaign_id"
         # Drop campaigns with no activity in the selected range — Google Ads
@@ -409,6 +422,7 @@ def _campaigns_uncached(
         "campaign": campaign_filter,
         "status": status_filter,
         "campaign_type_filter": campaign_type_filter,
+        "account_filter": account_filter,
     }
     if country_code:
         params["country_code"] = country_code
@@ -420,6 +434,7 @@ def _campaigns_uncached(
             campaign_name=r.campaign_name,
             asin=r.asin,
             country_code=r.country_code,
+            account=r.account,
             product_name=r.product_name,
             impressions=int(r.impressions or 0),
             clicks=int(r.clicks or 0),
@@ -546,12 +561,14 @@ def get_timeseries(
     campaign_type_filter: str = "",
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
+    account_filter: str = "",
 ) -> List[TimeseriesPoint]:
     key = ("timeseries", date_from, date_to, groupby, country_code, asin_filter,
-           campaign_filter, status_filter, campaign_type_filter, age_min, age_max)
+           campaign_filter, status_filter, campaign_type_filter, age_min, age_max,
+           account_filter)
     return cache.get_or_compute(key, lambda: _timeseries_uncached(
         db, date_from, date_to, groupby, country_code, asin_filter, campaign_filter,
-        status_filter, campaign_type_filter, age_min, age_max,
+        status_filter, campaign_type_filter, age_min, age_max, account_filter,
     ))
 
 
@@ -567,11 +584,12 @@ def _timeseries_uncached(
     campaign_type_filter: str = "",
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
+    account_filter: str = "",
 ) -> List[TimeseriesPoint]:
     period_expr = _period_expr(groupby)
     joins, where, fparams = _filter_clause(
         country_code, asin_filter, campaign_filter,
-        status_filter, campaign_type_filter, age_min, age_max,
+        status_filter, campaign_type_filter, age_min, age_max, account_filter,
     )
 
     sql = text(
@@ -630,6 +648,20 @@ def _timeseries_uncached(
         )
         for r in rows
     ]
+
+
+# ── Distinct accounts ─────────────────────────────────────────────────────────
+
+def get_accounts(db: Session) -> List[str]:
+    """Distinct non-null account labels, for the dashboard filter + upload datalist."""
+    def _compute():
+        rows = db.execute(text(
+            "SELECT DISTINCT account FROM google_ads_campaign_day"
+            " WHERE account IS NOT NULL AND account != ''"
+            " ORDER BY account"
+        )).fetchall()
+        return [r[0] for r in rows]
+    return cache.get_or_compute(("accounts",), _compute)
 
 
 # ── Product warnings (Archer link removed) ────────────────────────────────────

@@ -15,6 +15,8 @@ interface Props {
   typeFilter: TypeOption;
   ageMin: number | "";
   ageMax: number | "";
+  accountFilter: string;
+  accountOptions: string[];   // ["All", ...distinct account labels]
   onCampaignChange: (v: string) => void;
   onAsinChange: (v: string) => void;
   onStatusChange: (v: StatusOption) => void;
@@ -22,6 +24,7 @@ interface Props {
   onTypeChange: (v: TypeOption) => void;
   onAgeMinChange: (v: number | "") => void;
   onAgeMaxChange: (v: number | "") => void;
+  onAccountChange: (v: string) => void;
 }
 
 export type { StatusOption, CountryOption, TypeOption };
@@ -35,6 +38,7 @@ export interface DashboardFilters {
   type: TypeOption;
   ageMin: number | "";
   ageMax: number | "";
+  account: string;          // "All" | account label (dynamic, user-defined)
 }
 
 export const EMPTY_DASHBOARD_FILTERS: DashboardFilters = {
@@ -45,6 +49,7 @@ export const EMPTY_DASHBOARD_FILTERS: DashboardFilters = {
   type: "All",
   ageMin: "",
   ageMax: "",
+  account: "All",
 };
 
 function parseDay(val: string): number | "" {
@@ -59,6 +64,8 @@ export function TableFilters({
   typeFilter,
   ageMin,
   ageMax,
+  accountFilter,
+  accountOptions,
   onCampaignChange,
   onAsinChange,
   onStatusChange,
@@ -66,6 +73,7 @@ export function TableFilters({
   onTypeChange,
   onAgeMinChange,
   onAgeMaxChange,
+  onAccountChange,
 }: Props) {
   const hasAgeFilter = ageMin !== "" || ageMax !== "";
 
@@ -133,6 +141,24 @@ export function TableFilters({
           </button>
         ))}
       </div>
+      {/* Account filter — only shown once there are labeled accounts */}
+      {accountOptions.length > 1 && (
+        <div className="flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium">
+          {accountOptions.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => onAccountChange(opt)}
+              className={`px-3 py-1.5 transition-colors ${
+                accountFilter === opt
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              } ${opt !== "All" ? "border-l border-gray-300" : ""}`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
       {/* Age range filter */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-gray-500 whitespace-nowrap">Age</span>
