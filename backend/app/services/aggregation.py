@@ -393,6 +393,12 @@ def _campaigns_uncached(
         "   AND (:campaign_type_filter = '' OR COALESCE(g.campaign_type, 'brand') = :campaign_type_filter)"
         f"  {country_filter}"
         " GROUP BY g.campaign_id"
+        # Drop campaigns with no activity in the selected range — Google Ads
+        # exports a row per campaign per day even when idle, which on this
+        # account is ~90% of rows and bloated the payload to ~7 MB.
+        " HAVING SUM(g.impressions) > 0 OR SUM(g.clicks) > 0"
+        "     OR SUM(g.spend_usd) > 0"
+        f"    OR COALESCE(SUM({_cc_share('a.revenue_usd')}), 0) > 0"
         f" ORDER BY {sort_col} {dir_sql}"
     )
 
@@ -440,6 +446,19 @@ def _campaigns_uncached(
 # ── Date drill-down (per campaign, per period) ───────────────────────────────
 
 def get_campaign_dates(
+    db: Session,
+    campaign_id: str,
+    date_from: date,
+    date_to: date,
+    groupby: str = "day",
+) -> List[DateRow]:
+    key = ("campaign_dates", campaign_id, date_from, date_to, groupby)
+    return cache.get_or_compute(key, lambda: _campaign_dates_uncached(
+        db, campaign_id, date_from, date_to, groupby,
+    ))
+
+
+def _campaign_dates_uncached(
     db: Session,
     campaign_id: str,
     date_from: date,
