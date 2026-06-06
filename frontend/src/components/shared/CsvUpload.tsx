@@ -1,6 +1,5 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import axios from "axios";
-import { fetchAccounts } from "../../api/client";
 
 interface UploadResult {
   rows_imported: number;
@@ -14,22 +13,19 @@ interface Props {
   onSuccess: () => void;
 }
 
+// The two Google Ads accounts campaigns can come from.
+const ACCOUNTS = ["Explorads", "Archer"] as const;
+
 export function CsvUpload({ onSuccess }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState("");
-  const [knownAccounts, setKnownAccounts] = useState<string[]>([]);
-
-  useEffect(() => {
-    fetchAccounts().then(setKnownAccounts).catch(() => {});
-  }, []);
 
   async function handleFile(file: File) {
-    const acct = account.trim();
-    if (!acct) {
-      setError("Enter the account name first, then choose the file.");
+    if (!account) {
+      setError("Choose the account first, then select the file.");
       return;
     }
     setUploading(true);
@@ -37,14 +33,12 @@ export function CsvUpload({ onSuccess }: Props) {
     setError(null);
     const form = new FormData();
     form.append("file", file);
-    form.append("account", acct);
+    form.append("account", account);
     try {
       const { data } = await axios.post<UploadResult>("/api/upload/google-ads", form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResult(data);
-      // Refresh the known-accounts datalist so a new label shows up next time
-      fetchAccounts().then(setKnownAccounts).catch(() => {});
       onSuccess();
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -70,7 +64,7 @@ export function CsvUpload({ onSuccess }: Props) {
     if (file) handleFile(file);
   }
 
-  const accountMissing = !account.trim();
+  const accountMissing = !account;
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
@@ -83,19 +77,22 @@ export function CsvUpload({ onSuccess }: Props) {
         <label className="block text-xs font-medium text-gray-600 mb-1">
           Account <span className="text-red-500">*</span>
         </label>
-        <input
-          type="text"
-          list="known-accounts"
-          value={account}
-          onChange={(e) => setAccount(e.target.value)}
-          placeholder="Which Google Ads account is this report for?"
-          className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <datalist id="known-accounts">
-          {knownAccounts.map((a) => (
-            <option key={a} value={a} />
+        <div className="flex rounded-md border border-gray-300 overflow-hidden text-sm font-medium w-fit">
+          {ACCOUNTS.map((a, i) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => { setAccount(a); setError(null); }}
+              className={`px-4 py-1.5 transition-colors ${
+                account === a
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-50"
+              } ${i > 0 ? "border-l border-gray-300" : ""}`}
+            >
+              {a}
+            </button>
           ))}
-        </datalist>
+        </div>
       </div>
 
       {/* Drop zone */}
@@ -103,7 +100,7 @@ export function CsvUpload({ onSuccess }: Props) {
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={() => {
-          if (accountMissing) { setError("Enter the account name first, then choose the file."); return; }
+          if (accountMissing) { setError("Choose the account first, then select the file."); return; }
           inputRef.current?.click();
         }}
         className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
@@ -124,7 +121,9 @@ export function CsvUpload({ onSuccess }: Props) {
         ) : (
           <>
             <p className="text-sm text-gray-600">
-              Drop your Google Ads CSV here, or <span className="text-blue-600 font-medium">click to browse</span>
+              {accountMissing
+                ? "Choose an account above first"
+                : <>Drop your <strong>{account}</strong> CSV here, or <span className="text-blue-600 font-medium">click to browse</span></>}
             </p>
             <p className="text-xs text-gray-400 mt-1">
               Export from Google Ads → Reports → Campaigns, add the <strong>Day</strong> segment

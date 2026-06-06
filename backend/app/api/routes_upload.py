@@ -27,6 +27,33 @@ class UploadResult(BaseModel):
 _MODEL_FIELDS = {"campaign_id", "date", "campaign_name", "account", "asin", "country_code", "campaign_type", "impressions", "clicks", "spend_usd", "campaign_status"}
 
 
+def _backfill_account(db: Session, campaign_ids: list[str], account: str) -> int:
+    """
+    Retroactively attribute an account to a campaign's existing rows.
+
+    The first time a campaign is uploaded under an account, stamp that account
+    onto all of its earlier rows that have no account yet (account IS NULL). This
+    only fills blanks — it never overrides a campaign already assigned to another
+    account — so re-uploading doesn't clobber deliberate labels.
+    """
+    from sqlalchemy import text
+    if not campaign_ids or not account:
+        return 0
+    updated = 0
+    for i in range(0, len(campaign_ids), 500):  # stay under SQLite's bind-var limit
+        chunk = campaign_ids[i:i + 500]
+        placeholders = ",".join(f":id{j}" for j in range(len(chunk)))
+        params = {f"id{j}": cid for j, cid in enumerate(chunk)}
+        params["acct"] = account
+        res = db.execute(text(
+            "UPDATE google_ads_campaign_day SET account = :acct "
+            f"WHERE account IS NULL AND campaign_id IN ({placeholders})"
+        ), params)
+        updated += res.rowcount or 0
+    db.commit()
+    return updated
+
+
 def _upsert_rows(db: Session, rows: list[dict]) -> int:
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
     count = 0
@@ -105,6 +132,8 @@ async def upload_google_ads_csv(
         db.commit()
 
         count = _upsert_rows(db, records)
+        # Retroactively label this campaign's older (unlabeled) rows with the account.
+        _backfill_account(db, list({r["campaign_id"] for r in records}), account)
         log.status = "success"
         log.finished_at = datetime.utcnow()
         log.records_upserted = count

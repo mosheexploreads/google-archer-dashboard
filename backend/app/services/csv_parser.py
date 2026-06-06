@@ -86,14 +86,16 @@ def _clean_pct(value: str) -> Optional[float]:
     return n / 100.0
 
 
-def _make_campaign_id(campaign_name: str, account: str = "") -> str:
+def _make_campaign_id(campaign_name: str) -> str:
     """
-    Stable ID from campaign name (since CSV has no numeric ID). The account label
-    is mixed in so same-named campaigns in two different accounts don't collide on
-    the (campaign_id, date) primary key.
+    Stable ID from campaign name (since CSV has no numeric ID).
+
+    The account label is intentionally NOT part of the ID, so a campaign keeps a
+    single identity across uploads regardless of which account labels it. That's
+    what lets an account assignment apply retroactively to all of the campaign's
+    existing rows (see the backfill in routes_upload).
     """
-    seed = f"{account.strip().lower()}|{campaign_name.strip().lower()}"
-    return hashlib.md5(seed.encode()).hexdigest()[:16]
+    return hashlib.md5(campaign_name.strip().lower().encode()).hexdigest()[:16]
 
 
 def _build_col_index(headers: list[str]) -> dict[str, int]:
@@ -226,7 +228,7 @@ def parse_google_ads_csv(content: bytes, account: str = "") -> list[dict]:
             continue
 
         records.append({
-            "campaign_id":      get("campaign_id") or _make_campaign_id(campaign_name, account),
+            "campaign_id":      get("campaign_id") or _make_campaign_id(campaign_name),
             "campaign_name":    campaign_name,
             "account":          account or None,
             "asin":             asin,
