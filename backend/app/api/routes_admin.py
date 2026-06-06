@@ -14,6 +14,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")
 
 
+@router.post("/reclaim-space")
+def reclaim_space(vacuum: bool = False):
+    """
+    Reclaim disk WITHOUT deleting data. Truncates the (bloated) WAL by forcing a
+    checkpoint — this alone recovers most space. VACUUM is opt-in (?vacuum=true)
+    and skipped by default because it needs free temp space ~= DB size.
+    """
+    import os, sqlite3
+    from ..config import get_settings
+    db_path = get_settings().database_url.replace("sqlite:///", "")
+
+    def sizes():
+        out = {}
+        for s, label in [("", "db_mb"), ("-wal", "wal_mb"), ("-shm", "shm_mb")]:
+            p = db_path + s
+            out[label] = round(os.path.getsize(p) / 1024 / 1024, 1) if os.path.exists(p) else 0
+        return out
+
+    before = sizes()
+    result: dict = {}
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        result["wal_checkpoint"] = {"busy": row[0], "log_frames": row[1], "checkpointed": row[2]} if row else None
+        if vacuum:
+            conn.isolation_level = None  # VACUUM must run outside a transaction
+            try:
+                conn.execute("VACUUM")
+                result["vacuum"] = "ok"
+            except Exception as e:
+                result["vacuum_error"] = str(e)
+    finally:
+        conn.close()
+
+    return {"before_mb": before, "after_mb": sizes(), "result": result}
+
+
 @router.get("/db-stats")
 def db_stats():
     """Disk usage + row counts so we can see what's filling the Railway volume."""
