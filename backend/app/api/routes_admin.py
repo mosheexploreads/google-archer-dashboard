@@ -4,6 +4,7 @@ Admin-only endpoints for maintenance tasks.
 import logging
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
+from sqlalchemy import text
 
 from ..database import SessionLocal
 from ..models import ProductCatalog
@@ -11,6 +12,55 @@ from ..services.archer_client import ArcherClient
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")
+
+
+@router.get("/account-stats")
+def account_stats():
+    """Row + distinct-campaign counts per account label (NULL shown as 'unlabeled')."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text(
+            "SELECT COALESCE(account, '(unlabeled)') AS account,"
+            "       COUNT(*) AS rows,"
+            "       COUNT(DISTINCT campaign_id) AS campaigns,"
+            "       MIN(date) AS first_date, MAX(date) AS last_date"
+            " FROM google_ads_campaign_day"
+            " GROUP BY COALESCE(account, '(unlabeled)')"
+            " ORDER BY rows DESC"
+        )).fetchall()
+        return {"accounts": [dict(r._mapping) for r in rows]}
+    finally:
+        db.close()
+
+
+@router.post("/reassign-account")
+def reassign_account(from_account: str, to_account: str, date_from: str = "", date_to: str = ""):
+    """
+    Reassign every row currently labeled `from_account` to `to_account`.
+    Optionally scope to a date range (inclusive). Use to correct a mislabeled
+    upload, e.g. ?from_account=Explorads&to_account=Archer.
+    """
+    db = SessionLocal()
+    try:
+        sql = "UPDATE google_ads_campaign_day SET account = :to WHERE account = :frm"
+        params = {"to": to_account, "frm": from_account}
+        if date_from and date_to:
+            sql += " AND date BETWEEN :df AND :dt"
+            params["df"] = date_from
+            params["dt"] = date_to
+        res = db.execute(text(sql), params)
+        db.commit()  # after_commit hook clears the dashboard cache
+        logger.info("Reassigned %d rows from account %r to %r", res.rowcount, from_account, to_account)
+        return {
+            "status": "success",
+            "from_account": from_account,
+            "to_account": to_account,
+            "date_from": date_from or None,
+            "date_to": date_to or None,
+            "rows_updated": res.rowcount,
+        }
+    finally:
+        db.close()
 
 
 @router.post("/sync/catalog")
