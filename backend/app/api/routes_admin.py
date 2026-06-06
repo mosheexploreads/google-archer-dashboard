@@ -14,6 +14,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")
 
 
+@router.get("/db-stats")
+def db_stats():
+    """Disk usage + row counts so we can see what's filling the Railway volume."""
+    import os
+    from ..config import get_settings
+    settings = get_settings()
+    db_path = settings.database_url.replace("sqlite:///", "")
+    out: dict = {"db_path": db_path}
+
+    # Actual files on disk (main DB + WAL + SHM)
+    for suffix, label in [("", "db_file_mb"), ("-wal", "wal_file_mb"), ("-shm", "shm_file_mb")]:
+        p = db_path + suffix
+        out[label] = round(os.path.getsize(p) / 1024 / 1024, 1) if os.path.exists(p) else 0
+
+    db = SessionLocal()
+    try:
+        # Logical DB size from SQLite page accounting
+        pc = db.execute(text("PRAGMA page_count")).scalar() or 0
+        ps = db.execute(text("PRAGMA page_size")).scalar() or 0
+        out["sqlite_logical_mb"] = round(pc * ps / 1024 / 1024, 1)
+        out["freelist_mb"] = round((db.execute(text("PRAGMA freelist_count")).scalar() or 0) * ps / 1024 / 1024, 1)
+
+        # Row counts for the big tables
+        tables = ["google_ads_campaign_day", "product_catalog", "archer_product_day",
+                  "discovery_candidate", "discovery_result"]
+        counts = {}
+        for t in tables:
+            try:
+                counts[t] = db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar()
+            except Exception:
+                counts[t] = None
+        out["row_counts"] = counts
+
+        # How many google_ads rows are zero-activity (the prunable bulk)
+        out["google_ads_zero_activity_rows"] = db.execute(text(
+            "SELECT COUNT(*) FROM google_ads_campaign_day"
+            " WHERE COALESCE(impressions,0)=0 AND COALESCE(clicks,0)=0 AND COALESCE(spend_usd,0)=0"
+        )).scalar()
+        return out
+    finally:
+        db.close()
+
+
 @router.get("/account-stats")
 def account_stats():
     """Row + distinct-campaign counts per account label (NULL shown as 'unlabeled')."""
