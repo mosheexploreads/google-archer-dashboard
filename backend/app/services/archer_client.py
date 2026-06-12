@@ -88,7 +88,10 @@ class ArcherClient:
             headers = {"Authorization": f"Bearer {token}"}
 
             page = 1
-            limit = 100
+            # The deprecated endpoint is slow — Archer's docs say to use lower
+            # limits to avoid timeouts. 50/page + 120s + retries keeps the
+            # 30-day sync window from dying on a single slow page.
+            limit = 50
             while True:
                 params: Dict[str, Any] = {
                     "start_date": start_str,
@@ -98,12 +101,25 @@ class ArcherClient:
                 }
                 if geo:
                     params["geo"] = geo
-                resp = client.get(
-                    f"{self._base_url}/product_reports_all",
-                    params=params,
-                    headers=headers,
-                    timeout=60,
-                )
+                resp = None
+                for attempt in range(3):
+                    try:
+                        resp = client.get(
+                            f"{self._base_url}/product_reports_all",
+                            params=params,
+                            headers=headers,
+                            timeout=120,
+                        )
+                        break
+                    except httpx.TimeoutException:
+                        logger.warning(
+                            "Archer /product_reports_all page %d timed out (attempt %d/3)",
+                            page, attempt + 1,
+                        )
+                if resp is None:
+                    raise RuntimeError(
+                        f"Archer /product_reports_all page {page} timed out after 3 attempts"
+                    )
                 resp.raise_for_status()
                 data = resp.json()
 
