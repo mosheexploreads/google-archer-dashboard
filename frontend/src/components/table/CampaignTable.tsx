@@ -3,7 +3,7 @@ import { TableFilters } from "./TableFilters";
 import type { DashboardFilters } from "./TableFilters";
 import { DateDrillDown } from "./DateDrillDown";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
-import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir } from "../../types";
+import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir, RevenueSource } from "../../types";
 
 type SortKey = keyof Pick<
   CampaignRow,
@@ -32,6 +32,8 @@ interface Props {
   /** Filter state lifted to App so the whole dashboard shares it. */
   filters: DashboardFilters;
   onFiltersChange: (next: DashboardFilters) => void;
+  /** Which Archer API drives revenue (drill-down requests must match the table). */
+  revenueSource?: RevenueSource;
 }
 
 const COL_SPAN = 21; // toggle + Campaign + Account + Country + Status + Type + Age + 14 metric columns
@@ -48,7 +50,7 @@ function fmtAge(days: number | null): string {
   return `${(days / 365).toFixed(1)}y`;
 }
 
-export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange }: Props) {
+export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange, revenueSource = "auto" }: Props) {
   const { campaign: campaignFilter, asin: asinFilter, status: statusFilter,
           country: countryFilter, type: typeFilter, ageMin, ageMax,
           account: accountFilter } = filters;
@@ -341,6 +343,7 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                       dateTo={dateRange.to}
                       groupby={groupby}
                       colSpan={COL_SPAN}
+                      revenueSource={revenueSource}
                       onDataLoaded={(dates) => {
                         dateDataRef.current[row.campaign_id] = dates;
                       }}

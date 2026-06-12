@@ -18,7 +18,15 @@ from sqlalchemy.orm import Session
 
 from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning, DetailedExportRow
 from ..utils.geo_utils import country_to_geo
+from ..config import get_settings
 from . import cache
+
+# Allowed values for the revenue_source param; anything else falls back to "auto".
+_REVENUE_SOURCES = {"auto", "legacy", "new"}
+
+
+def _norm_source(revenue_source: str) -> str:
+    return revenue_source if revenue_source in _REVENUE_SOURCES else "auto"
 
 GroupBy = Literal["day", "week", "month"]
 
@@ -86,17 +94,27 @@ def _cc_share(col: str) -> str:
 # summing all geos would inflate revenue with EU/FE/CA data unrelated to the ad spend.
 # link_type matches campaign_type so brand campaigns see brand-link revenue only,
 # and amazon campaigns see amazon-link revenue only (which is $0 for most ASINs).
-def _archer_join(country_code: str = "") -> str:
+def _archer_join(country_code: str = "", revenue_source: str = "auto") -> str:
     link_cond = "AND a.link_type = COALESCE(g.campaign_type, 'brand')"
-    if country_code:
-        geo = country_to_geo(country_code)
-        return (
-            f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-            f" AND a.geo = '{geo}' {link_cond}"
+
+    # Source selection: both APIs' rows coexist in archer_product_day, keyed by
+    # `source`. "auto" = legacy before the cutover (Archer's commission-model
+    # change date), new from it onward. The cutover comes from server config —
+    # interpolated like geo, never user input.
+    src = _norm_source(revenue_source)
+    if src == "auto":
+        cutover = get_settings().archer_source_cutover
+        source_cond = (
+            f" AND ((a.date < '{cutover}' AND a.source = 'legacy')"
+            f" OR (a.date >= '{cutover}' AND a.source = 'new'))"
         )
+    else:
+        source_cond = f" AND a.source = '{src}'"
+
+    geo = country_to_geo(country_code) if country_code else "US"
     return (
         f" LEFT JOIN archer_product_day a ON g.asin = a.asin AND a.date = g.date"
-        f" AND a.geo = 'US' {link_cond}"
+        f" AND a.geo = '{geo}' {link_cond}{source_cond}"
     )
 
 
@@ -224,13 +242,16 @@ def get_summary(
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> SummaryResponse:
+    revenue_source = _norm_source(revenue_source)
     key = ("summary", date_from, date_to, country_code, asin_filter,
            campaign_filter, status_filter, campaign_type_filter, age_min, age_max,
-           account_filter)
+           account_filter, revenue_source)
     return cache.get_or_compute(key, lambda: _summary_uncached(
         db, date_from, date_to, country_code, asin_filter, campaign_filter,
         status_filter, campaign_type_filter, age_min, age_max, account_filter,
+        revenue_source,
     ))
 
 
@@ -246,6 +267,7 @@ def _summary_uncached(
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> SummaryResponse:
     joins, where, fparams = _filter_clause(
         country_code, asin_filter, campaign_filter,
@@ -261,7 +283,7 @@ def _summary_uncached(
         f" COALESCE(SUM({_cc_share('a.orders')}), 0)                     AS orders,"
         f" COALESCE(SUM({_cc_share('a.units_sold')}), 0)                 AS units_sold"
         " FROM google_ads_campaign_day g"
-        + _archer_join(country_code)
+        + _archer_join(country_code, revenue_source)
         + _CC_SUBQUERY
         + joins
         + " WHERE g.date BETWEEN :date_from AND :date_to"
@@ -303,14 +325,16 @@ def get_campaigns(
     country_code: str = "",
     campaign_type_filter: str = "",
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> List[CampaignRow]:
+    revenue_source = _norm_source(revenue_source)
     key = ("campaigns", date_from, date_to, sort_by, sort_dir, asin_filter,
            campaign_filter, status_filter, country_code, campaign_type_filter,
-           account_filter)
+           account_filter, revenue_source)
     return cache.get_or_compute(key, lambda: _campaigns_uncached(
         db, date_from, date_to, sort_by, sort_dir, asin_filter,
         campaign_filter, status_filter, country_code, campaign_type_filter,
-        account_filter,
+        account_filter, revenue_source,
     ))
 
 
@@ -326,6 +350,7 @@ def _campaigns_uncached(
     country_code: str = "",
     campaign_type_filter: str = "",
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> List[CampaignRow]:
     if sort_by not in _SORT_WHITELIST:
         sort_by = "spend_usd"
@@ -370,7 +395,7 @@ def _campaigns_uncached(
         "  fs.first_seen                                                        AS first_seen,"
         "  MAX(g.campaign_type)                                                 AS campaign_type"
         " FROM google_ads_campaign_day g"
-        + _archer_join(country_code)
+        + _archer_join(country_code, revenue_source)
         + _CC_SUBQUERY
         + " LEFT JOIN ("
         "   SELECT campaign_id, MIN(date) AS first_seen"
@@ -466,10 +491,12 @@ def get_campaign_dates(
     date_from: date,
     date_to: date,
     groupby: str = "day",
+    revenue_source: str = "auto",
 ) -> List[DateRow]:
-    key = ("campaign_dates", campaign_id, date_from, date_to, groupby)
+    revenue_source = _norm_source(revenue_source)
+    key = ("campaign_dates", campaign_id, date_from, date_to, groupby, revenue_source)
     return cache.get_or_compute(key, lambda: _campaign_dates_uncached(
-        db, campaign_id, date_from, date_to, groupby,
+        db, campaign_id, date_from, date_to, groupby, revenue_source,
     ))
 
 
@@ -479,6 +506,7 @@ def _campaign_dates_uncached(
     date_from: date,
     date_to: date,
     groupby: str = "day",
+    revenue_source: str = "auto",
 ) -> List[DateRow]:
     period_expr = _period_expr(groupby)
 
@@ -511,7 +539,7 @@ def _campaign_dates_uncached(
         "       THEN SUM(g.spend_usd)"
         f"           / COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)          END AS acos"
         " FROM google_ads_campaign_day g"
-        + _archer_join()
+        + _archer_join("", revenue_source)
         + _CC_SUBQUERY
         + " WHERE g.campaign_id = :campaign_id"
         "   AND g.date BETWEEN :date_from AND :date_to"
@@ -562,13 +590,16 @@ def get_timeseries(
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> List[TimeseriesPoint]:
+    revenue_source = _norm_source(revenue_source)
     key = ("timeseries", date_from, date_to, groupby, country_code, asin_filter,
            campaign_filter, status_filter, campaign_type_filter, age_min, age_max,
-           account_filter)
+           account_filter, revenue_source)
     return cache.get_or_compute(key, lambda: _timeseries_uncached(
         db, date_from, date_to, groupby, country_code, asin_filter, campaign_filter,
         status_filter, campaign_type_filter, age_min, age_max, account_filter,
+        revenue_source,
     ))
 
 
@@ -585,6 +616,7 @@ def _timeseries_uncached(
     age_min: Optional[int] = None,
     age_max: Optional[int] = None,
     account_filter: str = "",
+    revenue_source: str = "auto",
 ) -> List[TimeseriesPoint]:
     period_expr = _period_expr(groupby)
     joins, where, fparams = _filter_clause(
@@ -617,7 +649,7 @@ def _timeseries_uncached(
         f"      THEN COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)"
         "            / SUM(g.spend_usd)                                         END AS roas"
         " FROM google_ads_campaign_day g"
-        + _archer_join(country_code)
+        + _archer_join(country_code, revenue_source)
         + _CC_SUBQUERY
         + joins
         + " WHERE g.date BETWEEN :date_from AND :date_to"
@@ -724,7 +756,9 @@ def get_detailed_export(
     date_from: date,
     date_to: date,
     groupby: str = "day",
+    revenue_source: str = "auto",
 ) -> List[DetailedExportRow]:
+    revenue_source = _norm_source(revenue_source)
     period_expr = _period_expr(groupby)
 
     sql = text(
@@ -758,7 +792,7 @@ def get_detailed_export(
         "       THEN SUM(g.spend_usd)"
         f"           / COALESCE(SUM({_cc_share('a.revenue_usd')}), 0)           END AS acos"
         " FROM google_ads_campaign_day g"
-        + _archer_join()
+        + _archer_join("", revenue_source)
         + _CC_SUBQUERY
         + " WHERE g.date BETWEEN :date_from AND :date_to"
         " GROUP BY g.campaign_id, g.campaign_name, g.asin, period"
@@ -818,7 +852,8 @@ def get_revenue_debug(db, date_from, date_to):
     archer_sql = text(
         "SELECT asin, SUM(revenue_usd) AS total"
         " FROM archer_product_day"
-        " WHERE date BETWEEN :date_from AND :date_to AND geo = 'US'"
+        # legacy only — with two sources stored, summing both would double-count
+        " WHERE date BETWEEN :date_from AND :date_to AND geo = 'US' AND source = 'legacy'"
         " GROUP BY asin"
     )
     archer_rows = db.execute(archer_sql, {"date_from": date_from, "date_to": date_to}).fetchall()

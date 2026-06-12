@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useCampaignDates } from "../../hooks/useCampaignDates";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
-import type { DateRow, GroupBy } from "../../types";
+import type { DateRow, GroupBy, RevenueSource } from "../../types";
 
 interface Props {
   campaignId: string;
@@ -9,11 +9,12 @@ interface Props {
   dateTo: string;
   groupby: GroupBy;
   colSpan: number;
+  revenueSource?: RevenueSource;
   onDataLoaded?: (dates: DateRow[]) => void;
 }
 
-export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, onDataLoaded }: Props) {
-  const { dates, isLoading } = useCampaignDates(campaignId, dateFrom, dateTo, groupby);
+export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, revenueSource = "auto", onDataLoaded }: Props) {
+  const { dates, isLoading } = useCampaignDates(campaignId, dateFrom, dateTo, groupby, revenueSource);
 
   useEffect(() => {
     if (!isLoading && dates.length > 0) {
@@ -51,6 +52,8 @@ export function DateDrillDown({ campaignId, dateFrom, dateTo, groupby, colSpan, 
           <td className={`${tdBase} text-gray-300 text-center`}>└</td>
           {/* period — Campaign name column */}
           <td className={`${tdBase} font-mono text-gray-500`}>{row.period}</td>
+          {/* Account placeholder */}
+          <td className={tdBase} />
           {/* Country placeholder */}
           <td className={tdBase} />
           {/* Status placeholder */}

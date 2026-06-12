@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { AppShell } from "./components/layout/AppShell";
 import { DateRangeSelector } from "./components/controls/DateRangeSelector";
 import { GroupingToggle } from "./components/controls/GroupingToggle";
+import { SourceToggle } from "./components/controls/SourceToggle";
 import { SummaryCards } from "./components/cards/SummaryCards";
 import { SpendRevenueChart } from "./components/charts/SpendRevenueChart";
 import { CampaignTable } from "./components/table/CampaignTable";
@@ -21,7 +22,7 @@ import { useWarnings } from "./hooks/useWarnings";
 import { EMPTY_DASHBOARD_FILTERS } from "./components/table/TableFilters";
 import type { DashboardFilters } from "./components/table/TableFilters";
 import type { MetricFilters } from "./api/client";
-import type { DateRange, GroupBy, DateRow, CampaignRow } from "./types";
+import type { DateRange, GroupBy, DateRow, CampaignRow, RevenueSource } from "./types";
 
 type Tab = "dashboard" | "testing" | "catalog" | "campaigns" | "create" | "discover";
 
@@ -47,6 +48,8 @@ export default function App() {
     to: daysAgo(1),
   });
   const [groupby, setGroupby] = useState<GroupBy>("day");
+  // Which Archer API drives revenue: auto = old before Jun 7 2026, new after.
+  const [revenueSource, setRevenueSource] = useState<RevenueSource>("auto");
   const [showExport, setShowExport] = useState(false);
   const [exportRows, setExportRows] = useState<CampaignRow[]>([]);
 
@@ -73,7 +76,7 @@ export default function App() {
   const dateDataRef = useRef<Record<string, DateRow[]>>({});
 
   const { summary, campaigns, timeseries, loading, metricsLoading, error, reload } =
-    useDashboardData(dateRange.from, dateRange.to, debouncedFilters);
+    useDashboardData(dateRange.from, dateRange.to, debouncedFilters, revenueSource);
 
   const { syncStatus, loadStatus, handleTrigger, triggering } = useRefresh(reload);
   const { warnings, reload: reloadWarnings } = useWarnings();
@@ -82,10 +85,10 @@ export default function App() {
     loadStatus();
   }, [loadStatus]);
 
-  // Reset date cache when date range changes (stale data)
+  // Reset date cache when date range / grouping / revenue source changes (stale data)
   useEffect(() => {
     dateDataRef.current = {};
-  }, [dateRange, groupby]);
+  }, [dateRange, groupby, revenueSource]);
 
   return (
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
@@ -116,7 +119,10 @@ export default function App() {
       {/* Controls row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <DateRangeSelector value={dateRange} onChange={setDateRange} />
-        <GroupingToggle value={groupby} onChange={setGroupby} />
+        <div className="flex items-center gap-3">
+          <SourceToggle value={revenueSource} onChange={setRevenueSource} />
+          <GroupingToggle value={groupby} onChange={setGroupby} />
+        </div>
       </div>
 
       {/* Archer removal warnings */}
@@ -151,6 +157,7 @@ export default function App() {
         dateDataRef={dateDataRef}
         filters={filters}
         onFiltersChange={setFilters}
+        revenueSource={revenueSource}
       />
 
       {/* CSV Export modal */}
@@ -159,6 +166,7 @@ export default function App() {
           campaigns={exportRows}
           dateRange={dateRange}
           groupby={groupby}
+          revenueSource={revenueSource}
           onClose={() => setShowExport(false)}
         />
       )}

@@ -39,6 +39,7 @@ def dashboard_summary(
     age_min: Optional[int] = Query(None, description="Min campaign age in days"),
     age_max: Optional[int] = Query(None, description="Max campaign age in days"),
     account: str = Query("", description="Filter by Google Ads account label"),
+    revenue_source: str = Query("auto", description="Archer revenue source: auto | legacy | new"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -48,6 +49,7 @@ def dashboard_summary(
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, campaign_type_filter=campaign_type,
         age_min=age_min, age_max=age_max, account_filter=account,
+        revenue_source=revenue_source,
     )
 
 
@@ -63,6 +65,7 @@ def dashboard_campaigns(
     country_code: str = Query("", description="Filter by country code (US, UK, DE, JP, CA)"),
     campaign_type: str = Query("", description="Filter by campaign type (brand/amazon)"),
     account: str = Query("", description="Filter by Google Ads account label"),
+    revenue_source: str = Query("auto", description="Archer revenue source: auto | legacy | new"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -72,6 +75,7 @@ def dashboard_campaigns(
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, country_code=country_code,
         campaign_type_filter=campaign_type, account_filter=account,
+        revenue_source=revenue_source,
     )
     return CampaignsResponse(rows=rows, total=len(rows))
 
@@ -82,11 +86,12 @@ def dashboard_campaign_dates(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     groupby: GroupBy = Query("day"),
+    revenue_source: str = Query("auto", description="Archer revenue source: auto | legacy | new"),
     db: Session = Depends(get_db),
 ):
     """Date drill-down for one campaign. Always returns rows in chronological order."""
     date_from, date_to = _default_dates(date_from, date_to)
-    dates = get_campaign_dates(db, campaign_id, date_from, date_to, groupby)
+    dates = get_campaign_dates(db, campaign_id, date_from, date_to, groupby, revenue_source=revenue_source)
     return CampaignDatesResponse(campaign_id=campaign_id, dates=dates)
 
 
@@ -103,6 +108,7 @@ def dashboard_timeseries(
     age_min: Optional[int] = Query(None, description="Min campaign age in days"),
     age_max: Optional[int] = Query(None, description="Max campaign age in days"),
     account: str = Query("", description="Filter by Google Ads account label"),
+    revenue_source: str = Query("auto", description="Archer revenue source: auto | legacy | new"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
@@ -112,6 +118,7 @@ def dashboard_timeseries(
         asin_filter=asin, campaign_filter=campaign,
         status_filter=status, campaign_type_filter=campaign_type,
         age_min=age_min, age_max=age_max, account_filter=account,
+        revenue_source=revenue_source,
     )
     return TimeseriesResponse(points=points)
 
@@ -147,8 +154,9 @@ def dashboard_export_detailed(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     groupby: GroupBy = Query("day"),
+    revenue_source: str = Query("auto", description="Archer revenue source: auto | legacy | new"),
     db: Session = Depends(get_db),
 ):
     date_from, date_to = _default_dates(date_from, date_to)
-    rows = get_detailed_export(db, date_from, date_to, groupby)
+    rows = get_detailed_export(db, date_from, date_to, groupby, revenue_source=revenue_source)
     return DetailedExportResponse(rows=rows)

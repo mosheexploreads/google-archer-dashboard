@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     archer_reports_endpoint: str = ""  # blank = auto-discover
     archer_markets: str = "UK,DE,JP,CA"  # comma-separated country codes for catalog sync
 
+    # "Auto" revenue source shows legacy-API data before this date and
+    # new-API (/reports v2) data from it onward. Archer's commission-model
+    # change took effect 2026-06-07. Override via ARCHER_SOURCE_CUTOVER.
+    archer_source_cutover: str = "2026-06-07"
+
     anthropic_api_key: str = ""
     rainforest_api_key: str = ""
 

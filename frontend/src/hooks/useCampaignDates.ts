@@ -1,23 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import { fetchCampaignDates } from "../api/client";
-import type { DateRow, GroupBy } from "../types";
+import type { DateRow, GroupBy, RevenueSource } from "../types";
 
 /**
  * Fetches date drill-down rows for a single campaign.
- * Results are cached by (campaignId + dateRange + groupby) so repeated
+ * Results are cached by (campaignId + dateRange + groupby + source) so repeated
  * expands of the same row don't trigger extra network calls.
  */
 export function useCampaignDates(
   campaignId: string | null,  // null = not yet expanded
   dateFrom: string,
   dateTo: string,
-  groupby: GroupBy
+  groupby: GroupBy,
+  revenueSource: RevenueSource = "auto"
 ) {
   const [dates, setDates] = useState<DateRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const cache = useRef<Record<string, DateRow[]>>({});
 
-  const cacheKey = `${campaignId}-${dateFrom}-${dateTo}-${groupby}`;
+  const cacheKey = `${campaignId}-${dateFrom}-${dateTo}-${groupby}-${revenueSource}`;
 
   useEffect(() => {
     if (!campaignId) return;
@@ -30,7 +31,7 @@ export function useCampaignDates(
     let cancelled = false;
     setIsLoading(true);
 
-    fetchCampaignDates(campaignId, dateFrom, dateTo, groupby)
+    fetchCampaignDates(campaignId, dateFrom, dateTo, groupby, revenueSource)
       .then((res) => {
         if (cancelled) return;
         cache.current[cacheKey] = res.dates;
@@ -44,7 +45,7 @@ export function useCampaignDates(
       });
 
     return () => { cancelled = true; };
-  }, [campaignId, cacheKey, dateFrom, dateTo, groupby]);
+  }, [campaignId, cacheKey, dateFrom, dateTo, groupby, revenueSource]);
 
   return { dates, isLoading, cache: cache.current };
 }

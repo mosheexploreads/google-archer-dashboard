@@ -6,6 +6,7 @@ import type {
   TimeseriesData,
   SyncStatus,
   GroupBy,
+  RevenueSource,
   DetailedExportRow,
   TestStatusData,
   TestBatchUploadResult,
@@ -49,10 +50,11 @@ function filterParams(f?: MetricFilters): Record<string, string | number | undef
 export async function fetchSummary(
   dateFrom: string,
   dateTo: string,
-  filters?: MetricFilters
+  filters?: MetricFilters,
+  source: RevenueSource = "auto"
 ): Promise<SummaryData> {
   const { data } = await api.get("/dashboard/summary", {
-    params: { date_from: dateFrom, date_to: dateTo, ...filterParams(filters) },
+    params: { date_from: dateFrom, date_to: dateTo, revenue_source: source, ...filterParams(filters) },
   });
   return data;
 }
@@ -67,7 +69,8 @@ export async function fetchCampaigns(
   status = "",
   countryCode = "",
   campaignType = "",
-  account = ""
+  account = "",
+  source: RevenueSource = "auto"
 ): Promise<CampaignsData> {
   const { data } = await api.get("/dashboard/campaigns", {
     params: {
@@ -81,6 +84,7 @@ export async function fetchCampaigns(
       country_code: countryCode,
       campaign_type: campaignType,
       account,
+      revenue_source: source,
     },
   });
   return data;
@@ -95,10 +99,11 @@ export async function fetchCampaignDates(
   campaignId: string,
   dateFrom: string,
   dateTo: string,
-  groupby: GroupBy = "day"
+  groupby: GroupBy = "day",
+  source: RevenueSource = "auto"
 ): Promise<CampaignDatesData> {
   const { data } = await api.get(`/dashboard/campaigns/${campaignId}/dates`, {
-    params: { date_from: dateFrom, date_to: dateTo, groupby },
+    params: { date_from: dateFrom, date_to: dateTo, groupby, revenue_source: source },
   });
   return data;
 }
@@ -107,10 +112,11 @@ export async function fetchTimeseries(
   dateFrom: string,
   dateTo: string,
   groupby: GroupBy,
-  filters?: MetricFilters
+  filters?: MetricFilters,
+  source: RevenueSource = "auto"
 ): Promise<TimeseriesData> {
   const { data } = await api.get("/dashboard/timeseries", {
-    params: { date_from: dateFrom, date_to: dateTo, groupby, ...filterParams(filters) },
+    params: { date_from: dateFrom, date_to: dateTo, groupby, revenue_source: source, ...filterParams(filters) },
   });
   return data;
 }
@@ -127,10 +133,11 @@ export async function triggerSync(): Promise<void> {
 export async function fetchDetailedExport(
   dateFrom: string,
   dateTo: string,
-  groupby: GroupBy
+  groupby: GroupBy,
+  source: RevenueSource = "auto"
 ): Promise<DetailedExportRow[]> {
   const { data } = await api.get("/dashboard/export/detailed", {
-    params: { date_from: dateFrom, date_to: dateTo, groupby },
+    params: { date_from: dateFrom, date_to: dateTo, groupby, revenue_source: source },
   });
   return data.rows;
 }

@@ -2,6 +2,12 @@ export type GroupBy = "day" | "week" | "month";
 
 export type SortDir = "asc" | "desc";
 
+/**
+ * Which Archer API the revenue comes from.
+ * "auto" = old API before the 2026-06-07 commission change, new API from then on.
+ */
+export type RevenueSource = "auto" | "legacy" | "new";
+
 // ── Sync ─────────────────────────────────────────────────────────────────────
 
 export interface SyncSourceStatus {

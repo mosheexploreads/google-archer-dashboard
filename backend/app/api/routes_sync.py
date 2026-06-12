@@ -111,7 +111,8 @@ def debug_archer(
     db_rows = db.execute(text(
         "SELECT asin, SUM(revenue_usd) AS rev, SUM(orders) AS ord "
         "FROM archer_product_day "
-        "WHERE date BETWEEN :df AND :dt AND geo = 'US' "
+        # legacy only — both API sources are stored; summing both double-counts
+        "WHERE date BETWEEN :df AND :dt AND geo = 'US' AND source = 'legacy' "
         "GROUP BY asin ORDER BY rev DESC"
     ), {"df": date_from, "dt": date_to}).fetchall()
 

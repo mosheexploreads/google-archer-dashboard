@@ -157,6 +157,86 @@ class ArcherClient:
             })
         return normalised
 
+    def fetch_reports_v2(self, date_from: date, date_to: date, geo: str = "US") -> List[Dict[str, Any]]:
+        """
+        Fetch per-product daily earnings from the NEW GET /reports endpoint (v2.0,
+        cursor pagination). The deprecated /product_reports_all stays in
+        fetch_earnings — both are synced side by side.
+
+        Attribution is BY LINK: each returned dict is credited to the link's ASIN
+        (link.asin), not the ASIN actually sold. Summing these rows per link folds
+        halo sales (other ASINs sold under the link) into the campaign that drove
+        them — which is how campaigns map to revenue in the dashboard.
+
+        Returns dicts shaped like fetch_earnings:
+          asin, product_name, revenue_usd, total_sales_usd, orders, units_sold,
+          date, link_type
+        """
+        all_rows: List[Dict] = []
+        skipped_no_link = 0
+
+        with httpx.Client() as client:
+            token = self._get_token(client)
+            headers = {"Authorization": f"Bearer {token}"}
+
+            cursor: Optional[str] = None
+            pages = 0
+            while True:
+                params: Dict[str, Any] = {
+                    "start": date_from.strftime("%Y-%m-%d"),
+                    "end":   date_to.strftime("%Y-%m-%d"),
+                    "geo":   geo,
+                    "limit": 500,
+                }
+                if cursor:
+                    params["cursor"] = cursor
+                resp = client.get(
+                    f"{self._base_url}/reports",
+                    params=params,
+                    headers=headers,
+                    timeout=120,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                rows = data.get("data") or data.get("results") or data.get("rows") or []
+                pages += 1
+
+                if pages == 1 and rows:
+                    logger.info(
+                        "Archer /reports page 1: %d rows (total_count=%s), fields: %s",
+                        len(rows), data.get("total_count", "?"), list(rows[0].keys()),
+                    )
+
+                for row in rows:
+                    link = row.get("link") or {}
+                    link_asin = str(link.get("asin") or "").upper()
+                    if not link_asin:
+                        skipped_no_link += 1
+                        continue
+                    link_name = str(link.get("link_name") or "")
+                    all_rows.append({
+                        "asin":             link_asin,  # link-attributed (direct + halo)
+                        "product_name":     link.get("product_name") or row.get("product_name"),
+                        "revenue_usd":      float(row.get("commissionEarned") or 0),
+                        "total_sales_usd":  float(row.get("sales") or 0),
+                        "orders":           int(row.get("purchases") or 0),
+                        "units_sold":       int(row.get("conversions") or 0),
+                        "date":             row.get("date"),
+                        "link_type":        "amazon" if "amazon" in link_name.lower() else "brand",
+                    })
+
+                cursor = data.get("next_cursor")
+                if not cursor or not rows:
+                    break
+
+        if skipped_no_link:
+            logger.info("Archer /reports: skipped %d rows with no link.asin", skipped_no_link)
+        logger.info(
+            "Archer /reports: fetched %d link-attributed rows for %s – %s (%d pages)",
+            len(all_rows), date_from, date_to, pages,
+        )
+        return all_rows
+
     def fetch_products_paged(self, country_code: str):
         """
         Generator — yields one page (list of raw dicts) at a time.

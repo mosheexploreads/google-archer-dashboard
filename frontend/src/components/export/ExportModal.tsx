@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { exportAggregated, exportDetailed } from "../../utils/csvExport";
 import { fetchDetailedExport } from "../../api/client";
-import type { CampaignRow, DateRange, GroupBy } from "../../types";
+import type { CampaignRow, DateRange, GroupBy, RevenueSource } from "../../types";
 
 type Format = "aggregated" | "detailed";
 
@@ -9,10 +9,11 @@ interface Props {
   campaigns: CampaignRow[];
   dateRange: DateRange;
   groupby: GroupBy;
+  revenueSource?: RevenueSource;
   onClose: () => void;
 }
 
-export function ExportModal({ campaigns, dateRange, groupby, onClose }: Props) {
+export function ExportModal({ campaigns, dateRange, groupby, revenueSource = "auto", onClose }: Props) {
   const [format, setFormat] = useState<Format>("aggregated");
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +24,7 @@ export function ExportModal({ campaigns, dateRange, groupby, onClose }: Props) {
     } else {
       setLoading(true);
       try {
-        const rows = await fetchDetailedExport(dateRange.from, dateRange.to, groupby);
+        const rows = await fetchDetailedExport(dateRange.from, dateRange.to, groupby, revenueSource);
         exportDetailed(rows, dateRange);
         onClose();
       } finally {

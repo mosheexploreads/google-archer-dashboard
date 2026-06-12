@@ -125,79 +125,114 @@ def _parse_archer_date(raw) -> Optional[date]:
     return None
 
 
+def _upsert_archer_rows(db: Session, rows: list, geo: str, source: str) -> tuple[int, int]:
+    """
+    Aggregate normalised Archer rows by (asin, date, geo, link_type) and upsert
+    them tagged with `source` ("legacy" = /product_reports_all, "new" = /reports v2).
+    Returns (upserted, skipped).
+    """
+    aggregated: dict[tuple, dict] = {}
+    skipped = 0
+    for row in rows:
+        parsed_date = _parse_archer_date(row.get("date"))
+        if not row.get("asin") or parsed_date is None:
+            skipped += 1
+            continue
+        link_type = row.get("link_type", "brand")
+        key = (row["asin"].upper(), parsed_date, geo, link_type)
+        if key not in aggregated:
+            aggregated[key] = {
+                "asin":             row["asin"].upper(),
+                "date":             parsed_date,
+                "geo":              geo,
+                "link_type":        link_type,
+                "source":           source,
+                "product_name":     row.get("product_name"),
+                "revenue_usd":      row["revenue_usd"],
+                "total_sales_usd":  row.get("total_sales_usd", 0.0),
+                "orders":           row["orders"],
+                "units_sold":       row["units_sold"],
+            }
+        else:
+            aggregated[key]["revenue_usd"]     += row["revenue_usd"]
+            aggregated[key]["total_sales_usd"] += row.get("total_sales_usd", 0.0)
+            aggregated[key]["orders"]           += row["orders"]
+            aggregated[key]["units_sold"]       += row["units_sold"]
+
+    count = 0
+    for agg in aggregated.values():
+        stmt = sqlite_insert(ArcherProductDay).values(**agg)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["asin", "date", "geo", "link_type", "source"],
+            set_={
+                "product_name":     stmt.excluded.product_name,
+                "revenue_usd":      stmt.excluded.revenue_usd,
+                "total_sales_usd":  stmt.excluded.total_sales_usd,
+                "orders":           stmt.excluded.orders,
+                "units_sold":       stmt.excluded.units_sold,
+                "updated_at":       datetime.utcnow(),
+            },
+        )
+        db.execute(stmt)
+        count += 1
+
+    db.commit()
+    return count, skipped
+
+
 def sync_archer() -> int:
-    """Fetch D-30 through D-1 from Archer (US only) and upsert. Safe to re-run."""
+    """
+    Fetch D-30 through D-1 from BOTH Archer APIs (US only) and upsert each under
+    its own source tag. Both datasets are kept permanently — display picks per
+    date range. One API failing doesn't block the other. Safe to re-run; the
+    rolling 30-day window also refreshes still-settling attribution data.
+    """
     date_from = days_ago(30)
     date_to   = days_ago(1)
-    started   = datetime.utcnow()
     db        = SessionLocal()
     total_count = 0
+    failures = []
     try:
         client = ArcherClient()
 
         # US only — multi-geo sync was disabled because Archer staging API isn't
         # production-ready. Non-US rows inflate the DB and double revenue totals.
-        for geo in ["US"]:
+        geo = "US"
+
+        # ── Source 1: legacy /product_reports_all (deprecated but still served) ──
+        started = datetime.utcnow()
+        try:
             rows = client.fetch_earnings(date_from, date_to, geo=None)
-
-            # Aggregate by (asin, date, geo, link_type) — API may return multiple rows
-            # per link (link_name). Brand links → link_type='brand', amazon links → 'amazon'.
-            aggregated: dict[tuple, dict] = {}
-            skipped = 0
-            for row in rows:
-                parsed_date = _parse_archer_date(row.get("date"))
-                if not row.get("asin") or parsed_date is None:
-                    skipped += 1
-                    continue
-                link_type = row.get("link_type", "brand")
-                key = (row["asin"].upper(), parsed_date, geo, link_type)
-                if key not in aggregated:
-                    aggregated[key] = {
-                        "asin":             row["asin"].upper(),
-                        "date":             parsed_date,
-                        "geo":              geo,
-                        "link_type":        link_type,
-                        "product_name":     row.get("product_name"),
-                        "revenue_usd":      row["revenue_usd"],
-                        "total_sales_usd":  row.get("total_sales_usd", 0.0),
-                        "orders":           row["orders"],
-                        "units_sold":       row["units_sold"],
-                    }
-                else:
-                    aggregated[key]["revenue_usd"]     += row["revenue_usd"]
-                    aggregated[key]["total_sales_usd"] += row.get("total_sales_usd", 0.0)
-                    aggregated[key]["orders"]           += row["orders"]
-                    aggregated[key]["units_sold"]       += row["units_sold"]
-
-            count = 0
-            for agg in aggregated.values():
-                stmt = sqlite_insert(ArcherProductDay).values(**agg)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["asin", "date", "geo", "link_type"],
-                    set_={
-                        "product_name":     stmt.excluded.product_name,
-                        "revenue_usd":      stmt.excluded.revenue_usd,
-                        "total_sales_usd":  stmt.excluded.total_sales_usd,
-                        "orders":           stmt.excluded.orders,
-                        "units_sold":       stmt.excluded.units_sold,
-                        "updated_at":       datetime.utcnow(),
-                    },
-                )
-                db.execute(stmt)
-                count += 1
-
-            db.commit()
-            logger.info("Archer [%s]: upserted %d rows, skipped %d for %s–%s.", geo, count, skipped, date_from, date_to)
+            count, skipped = _upsert_archer_rows(db, rows, geo, "legacy")
+            logger.info("Archer legacy [%s]: upserted %d rows, skipped %d for %s–%s.",
+                        geo, count, skipped, date_from, date_to)
+            _log_sync(db, "archer", "success", started, records=count)
             total_count += count
+        except Exception as exc:
+            db.rollback()
+            _log_sync(db, "archer", "error", started, error=str(exc))
+            logger.error("Archer legacy sync failed: %s", exc, exc_info=True)
+            failures.append(("legacy", exc))
 
-        _log_sync(db, "archer", "success", started, records=total_count)
+        # ── Source 2: new /reports v2 (link-attributed: direct + halo per link) ──
+        started = datetime.utcnow()
+        try:
+            rows_v2 = client.fetch_reports_v2(date_from, date_to, geo=geo)
+            count, skipped = _upsert_archer_rows(db, rows_v2, geo, "new")
+            logger.info("Archer v2 [%s]: upserted %d rows, skipped %d for %s–%s.",
+                        geo, count, skipped, date_from, date_to)
+            _log_sync(db, "archer_v2", "success", started, records=count)
+            total_count += count
+        except Exception as exc:
+            db.rollback()
+            _log_sync(db, "archer_v2", "error", started, error=str(exc))
+            logger.error("Archer v2 sync failed: %s", exc, exc_info=True)
+            failures.append(("new", exc))
+
+        if len(failures) == 2:
+            # both failed — surface as a sync error like before
+            raise failures[0][1]
         return total_count
-
-    except Exception as exc:
-        db.rollback()
-        _log_sync(db, "archer", "error", started, error=str(exc))
-        logger.error("Archer sync failed: %s", exc, exc_info=True)
-        raise
     finally:
         db.close()
 

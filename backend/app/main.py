@@ -221,6 +221,53 @@ def _migrate_archer_link_type(engine):
     logger.info("archer_product_day link_type migration complete.")
 
 
+def _migrate_archer_source(engine):
+    """
+    Rebuild archer_product_day with source as part of the primary key.
+    Old PK: (asin, date, geo, link_type).  New PK: (asin, date, geo, link_type, source).
+    Existing rows are tagged source='legacy' (they came from /product_reports_all).
+    This lets us store the new /reports v2 data alongside without overwriting,
+    in case Archer reverts/compensates on legacy numbers.
+    """
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "archer_product_day" not in insp.get_table_names():
+        return  # create_all will build the new schema
+    existing_cols = {c["name"] for c in insp.get_columns("archer_product_day")}
+    if "source" in existing_cols:
+        return  # already migrated
+    logger.info("Migrating archer_product_day: adding source column and rebuilding PK...")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE archer_product_day_new ("
+            "  asin            TEXT NOT NULL,"
+            "  date            DATE NOT NULL,"
+            "  geo             TEXT NOT NULL DEFAULT 'US',"
+            "  link_type       TEXT NOT NULL DEFAULT 'brand',"
+            "  source          TEXT NOT NULL DEFAULT 'legacy',"
+            "  product_name    TEXT,"
+            "  revenue_usd     REAL DEFAULT 0.0,"
+            "  total_sales_usd REAL DEFAULT 0.0,"
+            "  orders          INTEGER DEFAULT 0,"
+            "  units_sold      INTEGER DEFAULT 0,"
+            "  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  PRIMARY KEY (asin, date, geo, link_type, source)"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO archer_product_day_new "
+            "(asin, date, geo, link_type, source, product_name, revenue_usd, total_sales_usd, "
+            " orders, units_sold, created_at, updated_at) "
+            "SELECT asin, date, geo, link_type, 'legacy', product_name, revenue_usd, "
+            "       COALESCE(total_sales_usd, 0.0), orders, units_sold, created_at, updated_at "
+            "FROM archer_product_day"
+        ))
+        conn.execute(text("DROP TABLE archer_product_day"))
+        conn.execute(text("ALTER TABLE archer_product_day_new RENAME TO archer_product_day"))
+    logger.info("archer_product_day source migration complete.")
+
+
 def _cleanup_stuck_scans(engine):
     """
     Reset any discovery scans that are stuck in 'running' state.
@@ -442,6 +489,7 @@ async def lifespan(app: FastAPI):
             _ensure_test_campaign_columns(engine)
             _migrate_archer_total_sales_usd(engine)
             _migrate_archer_link_type(engine)
+            _migrate_archer_source(engine)
             _backfill_null_asins(engine)
             _migrate_discovery_schema(engine)
             logger.info("All migrations complete.")

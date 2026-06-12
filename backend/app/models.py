@@ -25,13 +25,16 @@ class GoogleAdsCampaignDay(Base):
 
 
 class ArcherProductDay(Base):
-    """One row per (asin, date, geo, link_type). Upserted on each sync."""
+    """One row per (asin, date, geo, link_type, source). Upserted on each sync."""
     __tablename__ = "archer_product_day"
 
     asin = Column(String, primary_key=True, nullable=False)
     date = Column(Date, primary_key=True, nullable=False)
     geo = Column(String, primary_key=True, nullable=False, default="US")  # US | EU | FE | CA
     link_type = Column(String, primary_key=True, nullable=False, default="brand")  # "brand" | "amazon"
+    # Which Archer API produced the row. "legacy" = deprecated /product_reports_all,
+    # "new" = /reports v2 (link-attributed direct+halo). Both are synced and kept.
+    source = Column(String, primary_key=True, nullable=False, default="legacy")
     product_name = Column(String, nullable=True)
 
     revenue_usd     = Column(Float, default=0.0)
