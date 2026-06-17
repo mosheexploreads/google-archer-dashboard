@@ -54,9 +54,20 @@ function formatDate(iso: string | null): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function CreateCampaignsPage() {
-  const [input, setInput] = useState("");
+interface Props {
+  /** Pre-fill the ASIN textarea (e.g. from a halo opportunity). "ASIN\tname". */
+  prefill?: string;
+}
+
+export function CreateCampaignsPage({ prefill }: Props = {}) {
+  const [input, setInput] = useState(prefill ?? "");
   const [campaignType, setCampaignType] = useState<"brand" | "amazon">("brand");
+
+  // When arriving with a new prefill (e.g. clicked "Create campaign" on an
+  // opportunity), drop it into the textarea so the user can review + generate.
+  useEffect(() => {
+    if (prefill) setInput(prefill);
+  }, [prefill]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

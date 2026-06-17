@@ -7,10 +7,12 @@ from ..database import get_db
 from ..schemas import (
     SummaryResponse, CampaignsResponse, CampaignDatesResponse,
     TimeseriesResponse, WarningsResponse, DetailedExportResponse,
+    CampaignProductsResponse, HaloOpportunitiesResponse,
 )
 from ..services.aggregation import (
     get_summary, get_campaigns, get_campaign_dates, get_timeseries, get_warnings,
     get_detailed_export, get_revenue_debug, get_accounts,
+    get_campaign_products, get_halo_opportunities,
 )
 from ..utils.date_utils import yesterday, days_ago
 
@@ -121,6 +123,30 @@ def dashboard_timeseries(
         revenue_source=revenue_source,
     )
     return TimeseriesResponse(points=points)
+
+
+@router.get("/campaigns/{campaign_id}/products", response_model=CampaignProductsResponse)
+def dashboard_campaign_products(
+    campaign_id: str,
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Which ASINs actually sold under this campaign's link (new API)."""
+    date_from, date_to = _default_dates(date_from, date_to)
+    return get_campaign_products(db, campaign_id, date_from, date_to)
+
+
+@router.get("/halo-opportunities", response_model=HaloOpportunitiesResponse)
+def dashboard_halo_opportunities(
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    min_commission: float = Query(20.0, description="Min total link commission to flag"),
+    db: Session = Depends(get_db),
+):
+    """Campaigns whose revenue is mostly halo (advertising the 'wrong' ASIN)."""
+    date_from, date_to = _default_dates(date_from, date_to)
+    return get_halo_opportunities(db, date_from, date_to, min_commission=min_commission)
 
 
 @router.get("/accounts")

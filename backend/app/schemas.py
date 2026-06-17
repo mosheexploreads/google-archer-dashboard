@@ -80,6 +80,47 @@ class CampaignDatesResponse(BaseModel):
     dates: List[DateRow]
 
 
+# ── Per-product (halo) breakdown ─────────────────────────────────────────────
+
+class CampaignProductRow(BaseModel):
+    sold_asin: str
+    product_name: Optional[str]
+    is_own: bool                 # sold_asin == the campaign's own ASIN
+    units: int
+    purchases: int
+    sales: float
+    commission: float
+    pct_of_commission: Optional[float]  # share of the campaign's total commission
+
+
+class CampaignProductsResponse(BaseModel):
+    campaign_id: str
+    own_asin: Optional[str]
+    products: List[CampaignProductRow]
+
+
+class HaloOpportunityRow(BaseModel):
+    campaign_id: Optional[str]
+    campaign_name: Optional[str]
+    status: Optional[str]
+    asin: str                    # the campaign's own ASIN
+    campaign_type: Optional[str]
+    spend_usd: float
+    own_commission: float
+    total_commission: float
+    roas: Optional[float]
+    top_halo_asin: str
+    top_halo_name: Optional[str]
+    top_halo_commission: float
+    top_halo_units: int
+    same_brand: bool             # halo ASIN shares brand → likely variant swap
+
+
+class HaloOpportunitiesResponse(BaseModel):
+    rows: List[HaloOpportunityRow]
+    total: int
+
+
 # ── Timeseries ────────────────────────────────────────────────────────────────
 
 class TimeseriesPoint(BaseModel):

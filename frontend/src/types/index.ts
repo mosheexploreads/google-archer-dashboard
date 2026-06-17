@@ -8,6 +8,42 @@ export type SortDir = "asc" | "desc";
  */
 export type RevenueSource = "auto" | "legacy" | "new";
 
+// ── Per-product (halo) breakdown ────────────────────────────────────────────
+
+export interface CampaignProduct {
+  sold_asin: string;
+  product_name: string | null;
+  is_own: boolean;
+  units: number;
+  purchases: number;
+  sales: number;
+  commission: number;
+  pct_of_commission: number | null;
+}
+
+export interface CampaignProductsData {
+  campaign_id: string;
+  own_asin: string | null;
+  products: CampaignProduct[];
+}
+
+export interface HaloOpportunity {
+  campaign_id: string | null;
+  campaign_name: string | null;
+  status: string | null;
+  asin: string;
+  campaign_type: string | null;
+  spend_usd: number;
+  own_commission: number;
+  total_commission: number;
+  roas: number | null;
+  top_halo_asin: string;
+  top_halo_name: string | null;
+  top_halo_commission: number;
+  top_halo_units: number;
+  same_brand: boolean;
+}
+
 // ── Sync ─────────────────────────────────────────────────────────────────────
 
 export interface SyncSourceStatus {

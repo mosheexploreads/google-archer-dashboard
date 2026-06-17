@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { TableFilters } from "./TableFilters";
 import type { DashboardFilters } from "./TableFilters";
 import { DateDrillDown } from "./DateDrillDown";
+import { ProductDrillDown } from "./ProductDrillDown";
 import { fmtUSD, fmtROAS, fmtRPC, fmtPct, fmtNumber } from "../../utils/formatters";
 import type { CampaignRow, DateRow, GroupBy, DateRange, SortDir, RevenueSource } from "../../types";
 
@@ -34,6 +35,8 @@ interface Props {
   onFiltersChange: (next: DashboardFilters) => void;
   /** Which Archer API drives revenue (drill-down requests must match the table). */
   revenueSource?: RevenueSource;
+  /** Spin up a campaign for a halo ASIN (pre-fills the Create Campaigns tab). */
+  onCreateForAsin?: (asin: string, productName: string | null) => void;
 }
 
 const COL_SPAN = 21; // toggle + Campaign + Account + Country + Status + Type + Age + 14 metric columns
@@ -50,7 +53,10 @@ function fmtAge(days: number | null): string {
   return `${(days / 365).toFixed(1)}y`;
 }
 
-export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange, revenueSource = "auto" }: Props) {
+export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dateDataRef, filters, onFiltersChange, revenueSource = "auto", onCreateForAsin }: Props) {
+  // When a row is expanded, show either the per-date breakdown or the per-product
+  // (sold-ASIN / halo) breakdown. Global toggle, applies to all expanded rows.
+  const [drillView, setDrillView] = useState<"dates" | "products">("dates");
   const { campaign: campaignFilter, asin: asinFilter, status: statusFilter,
           country: countryFilter, type: typeFilter, ageMin, ageMax,
           account: accountFilter } = filters;
@@ -182,12 +188,31 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
           onAgeMaxChange={(v) => patch({ ageMax: v })}
           onAccountChange={(v) => patch({ account: v })}
         />
-        <button
-          onClick={() => onExport(filtered)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          ↓ Export CSV
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Drill-down view toggle — applies to expanded rows */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">Expand:</span>
+            <div className="flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium">
+              {(["dates", "products"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setDrillView(v)}
+                  className={`px-3 py-1.5 transition-colors ${
+                    drillView === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                  } ${v !== "dates" ? "border-l border-gray-300" : ""}`}
+                >
+                  {v === "dates" ? "Dates" : "Products"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => onExport(filtered)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            ↓ Export CSV
+          </button>
+        </div>
       </div>
 
       <div style={{ overflowY: "auto", overflowX: "auto", maxHeight: "500px" }}>
@@ -334,8 +359,8 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                     </td>
                   </tr>
 
-                  {/* Date drill-down rows (Level 2) — only shown when expanded */}
-                  {isOpen && (
+                  {/* Drill-down rows (Level 2) — by date or by product, per toggle */}
+                  {isOpen && drillView === "dates" && (
                     <DateDrillDown
                       key={`dates-${row.campaign_id}`}
                       campaignId={row.campaign_id}
@@ -347,6 +372,16 @@ export function CampaignTable({ rows, loading, dateRange, groupby, onExport, dat
                       onDataLoaded={(dates) => {
                         dateDataRef.current[row.campaign_id] = dates;
                       }}
+                    />
+                  )}
+                  {isOpen && drillView === "products" && (
+                    <ProductDrillDown
+                      key={`products-${row.campaign_id}`}
+                      campaignId={row.campaign_id}
+                      dateFrom={dateRange.from}
+                      dateTo={dateRange.to}
+                      colSpan={COL_SPAN}
+                      onCreateForAsin={(asin, name) => onCreateForAsin?.(asin, name)}
                     />
                   )}
                 </>

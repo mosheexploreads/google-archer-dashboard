@@ -121,6 +121,28 @@ export async function fetchTimeseries(
   return data;
 }
 
+export async function fetchCampaignProducts(
+  campaignId: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<import("../types").CampaignProductsData> {
+  const { data } = await api.get(`/dashboard/campaigns/${campaignId}/products`, {
+    params: { date_from: dateFrom, date_to: dateTo },
+  });
+  return data;
+}
+
+export async function fetchHaloOpportunities(
+  dateFrom: string,
+  dateTo: string,
+  minCommission = 20
+): Promise<{ rows: import("../types").HaloOpportunity[]; total: number }> {
+  const { data } = await api.get("/dashboard/halo-opportunities", {
+    params: { date_from: dateFrom, date_to: dateTo, min_commission: minCommission },
+  });
+  return data;
+}
+
 export async function fetchSyncStatus(): Promise<SyncStatus> {
   const { data } = await api.get("/sync/status");
   return data;

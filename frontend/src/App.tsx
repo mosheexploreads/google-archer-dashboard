@@ -15,6 +15,7 @@ import { CatalogPage } from "./components/catalog/CatalogPage";
 import { CampaignsPage } from "./components/campaigns/CampaignsPage";
 import { CreateCampaignsPage } from "./components/campaigns/CreateCampaignsPage";
 import { DiscoveryPage } from "./components/discovery/DiscoveryPage";
+import { OpportunitiesPage } from "./components/opportunities/OpportunitiesPage";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useDebounce } from "./hooks/useDebounce";
 import { useRefresh } from "./hooks/useRefresh";
@@ -24,7 +25,7 @@ import type { DashboardFilters } from "./components/table/TableFilters";
 import type { MetricFilters } from "./api/client";
 import type { DateRange, GroupBy, DateRow, CampaignRow, RevenueSource } from "./types";
 
-type Tab = "dashboard" | "testing" | "catalog" | "campaigns" | "create" | "discover";
+type Tab = "dashboard" | "testing" | "catalog" | "campaigns" | "create" | "discover" | "opportunities";
 
 const TAB_LABELS: Record<Tab, string> = {
   dashboard: "Dashboard",
@@ -33,6 +34,7 @@ const TAB_LABELS: Record<Tab, string> = {
   campaigns: "Campaigns",
   create: "Create Campaigns",
   discover: "Discover",
+  opportunities: "Opportunities",
 };
 
 function daysAgo(n: number): string {
@@ -50,6 +52,14 @@ export default function App() {
   const [groupby, setGroupby] = useState<GroupBy>("day");
   // Which Archer API drives revenue: auto = old before Jun 7 2026, new after.
   const [revenueSource, setRevenueSource] = useState<RevenueSource>("auto");
+  // Pre-fill text for the Create Campaigns tab (set when "Create campaign" is
+  // clicked on a halo product / opportunity).
+  const [createPrefill, setCreatePrefill] = useState("");
+
+  function handleCreateForAsin(asin: string, productName: string | null) {
+    setCreatePrefill(`${asin}\t${productName ?? ""}`.trim());
+    setTab("create");
+  }
   const [showExport, setShowExport] = useState(false);
   const [exportRows, setExportRows] = useState<CampaignRow[]>([]);
 
@@ -94,7 +104,7 @@ export default function App() {
     <AppShell syncStatus={syncStatus} onRefresh={handleTrigger} refreshing={triggering}>
       {/* Tab navigation */}
       <div className="flex gap-1 border-b border-gray-200 -mb-2">
-        {(["dashboard", "testing", "create", "discover"] as Tab[]).map((t) => (
+        {(["dashboard", "testing", "create", "discover", "opportunities"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -110,10 +120,11 @@ export default function App() {
       </div>
 
       {tab === "testing" && <TestingPage />}
-      {tab === "create" && <CreateCampaignsPage />}
+      {tab === "create" && <CreateCampaignsPage prefill={createPrefill} />}
       {tab === "catalog" && <CatalogPage />}
       {tab === "campaigns" && <CampaignsPage />}
       {tab === "discover" && <DiscoveryPage />}
+      {tab === "opportunities" && <OpportunitiesPage onCreateForAsin={handleCreateForAsin} />}
 
       {tab === "dashboard" && <>
       {/* Controls row */}
@@ -158,6 +169,7 @@ export default function App() {
         filters={filters}
         onFiltersChange={setFilters}
         revenueSource={revenueSource}
+        onCreateForAsin={handleCreateForAsin}
       />
 
       {/* CSV Export modal */}

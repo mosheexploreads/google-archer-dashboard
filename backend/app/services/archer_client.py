@@ -239,6 +239,12 @@ class ArcherClient:
                         "units_sold":       int(row.get("conversions") or 0),
                         "date":             row.get("date"),
                         "link_type":        "amazon" if "amazon" in link_name.lower() else "brand",
+                        # Per-product detail (which ASIN actually sold under this link) —
+                        # used to build the halo breakdown table. Ignored by the
+                        # link-aggregated revenue upsert.
+                        "sold_asin":          str(row.get("asin") or "").upper(),
+                        "sold_product_name":  row.get("product_name"),
+                        "brand_name":         row.get("brand_name"),
                     })
 
                 cursor = data.get("next_cursor")

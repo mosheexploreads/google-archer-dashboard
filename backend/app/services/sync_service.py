@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from ..database import SessionLocal
-from ..models import GoogleAdsCampaignDay, ArcherProductDay, ProductCatalog, SyncLog, ArcherAsinStatus
+from ..models import (
+    GoogleAdsCampaignDay, ArcherProductDay, ArcherLinkProductDay,
+    ProductCatalog, SyncLog, ArcherAsinStatus,
+)
 from ..utils.asin_extractor import extract_asin
 from ..utils.geo_utils import ARCHER_GEOS, country_to_geo
 from ..utils.date_utils import yesterday, days_ago
@@ -180,6 +183,62 @@ def _upsert_archer_rows(db: Session, rows: list, geo: str, source: str) -> tuple
     return count, skipped
 
 
+def _upsert_link_products(db: Session, rows: list, geo: str) -> int:
+    """
+    From the new /reports v2 rows, store the per-product breakdown — which ASIN
+    actually sold under each campaign link — into archer_link_product_day.
+    Aggregates by (link_asin, link_type, sold_asin, date); only keeps rows that
+    actually had a sale (sales/commission/purchases > 0) to keep the table lean.
+    """
+    aggregated: dict[tuple, dict] = {}
+    for row in rows:
+        sold_asin = (row.get("sold_asin") or "").upper()
+        link_asin = (row.get("asin") or "").upper()
+        parsed_date = _parse_archer_date(row.get("date"))
+        if not sold_asin or not link_asin or parsed_date is None:
+            continue
+        sales = float(row.get("total_sales_usd") or 0)
+        comm  = float(row.get("revenue_usd") or 0)
+        purch = int(row.get("orders") or 0)
+        if sales <= 0 and comm <= 0 and purch <= 0:
+            continue  # no sale — skip
+        link_type = row.get("link_type", "brand")
+        key = (link_asin, link_type, sold_asin, parsed_date, geo)
+        if key not in aggregated:
+            aggregated[key] = {
+                "link_asin": link_asin, "link_type": link_type, "sold_asin": sold_asin,
+                "date": parsed_date, "geo": geo,
+                "sold_product_name": row.get("sold_product_name"),
+                "brand_name": row.get("brand_name"),
+                "sales": sales, "commission": comm,
+                "units": int(row.get("units_sold") or 0), "purchases": purch,
+            }
+        else:
+            a = aggregated[key]
+            a["sales"] += sales; a["commission"] += comm
+            a["units"] += int(row.get("units_sold") or 0); a["purchases"] += purch
+
+    count = 0
+    for agg in aggregated.values():
+        stmt = sqlite_insert(ArcherLinkProductDay).values(**agg)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["link_asin", "link_type", "sold_asin", "date", "geo"],
+            set_={
+                "sold_product_name": stmt.excluded.sold_product_name,
+                "brand_name":        stmt.excluded.brand_name,
+                "sales":             stmt.excluded.sales,
+                "commission":        stmt.excluded.commission,
+                "units":             stmt.excluded.units,
+                "purchases":         stmt.excluded.purchases,
+                "updated_at":        datetime.utcnow(),
+            },
+        )
+        db.execute(stmt)
+        count += 1
+    db.commit()
+    return count
+
+
 def sync_archer() -> int:
     """
     Fetch D-30 through D-1 from BOTH Archer APIs (US only) and upsert each under
@@ -219,8 +278,10 @@ def sync_archer() -> int:
         try:
             rows_v2 = client.fetch_reports_v2(date_from, date_to, geo=geo)
             count, skipped = _upsert_archer_rows(db, rows_v2, geo, "new")
-            logger.info("Archer v2 [%s]: upserted %d rows, skipped %d for %s–%s.",
-                        geo, count, skipped, date_from, date_to)
+            # Also store the per-product (sold ASIN) breakdown for halo analysis.
+            prod_count = _upsert_link_products(db, rows_v2, geo)
+            logger.info("Archer v2 [%s]: upserted %d revenue rows + %d product rows, skipped %d for %s–%s.",
+                        geo, count, prod_count, skipped, date_from, date_to)
             _log_sync(db, "archer_v2", "success", started, records=count)
             total_count += count
         except Exception as exc:

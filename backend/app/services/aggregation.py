@@ -16,7 +16,10 @@ from typing import Optional, List, Literal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..schemas import SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning, DetailedExportRow
+from ..schemas import (
+    SummaryResponse, CampaignRow, DateRow, TimeseriesPoint, ProductWarning, DetailedExportRow,
+    CampaignProductRow, CampaignProductsResponse, HaloOpportunityRow, HaloOpportunitiesResponse,
+)
 from ..utils.geo_utils import country_to_geo
 from ..config import get_settings
 from . import cache
@@ -680,6 +683,124 @@ def _timeseries_uncached(
         )
         for r in rows
     ]
+
+
+# ── Per-product (halo) breakdown ──────────────────────────────────────────────
+
+def _campaign_asin_type(db: Session, campaign_id: str):
+    """Resolve a campaign's own ASIN + type from google_ads_campaign_day."""
+    row = db.execute(text(
+        "SELECT MAX(asin) AS asin, COALESCE(MAX(campaign_type), 'brand') AS ctype"
+        " FROM google_ads_campaign_day WHERE campaign_id = :cid"
+    ), {"cid": campaign_id}).fetchone()
+    if not row or not row.asin:
+        return None, "brand"
+    return row.asin.upper(), (row.ctype or "brand")
+
+
+def get_campaign_products(db: Session, campaign_id: str, date_from: date, date_to: date) -> CampaignProductsResponse:
+    """Which ASINs actually sold under a campaign's link (new API), for the range."""
+    def _compute():
+        own_asin, ctype = _campaign_asin_type(db, campaign_id)
+        if not own_asin:
+            return CampaignProductsResponse(campaign_id=campaign_id, own_asin=None, products=[])
+        rows = db.execute(text(
+            "SELECT sold_asin, MAX(sold_product_name) AS name,"
+            "       SUM(units) AS units, SUM(purchases) AS purchases,"
+            "       SUM(sales) AS sales, SUM(commission) AS commission"
+            " FROM archer_link_product_day"
+            " WHERE link_asin = :asin AND link_type = :ctype AND geo = 'US'"
+            "   AND date BETWEEN :df AND :dt"
+            " GROUP BY sold_asin"
+            " ORDER BY commission DESC"
+        ), {"asin": own_asin, "ctype": ctype, "df": date_from, "dt": date_to}).fetchall()
+        total_comm = sum(float(r.commission or 0) for r in rows) or 0.0
+        products = [
+            CampaignProductRow(
+                sold_asin=r.sold_asin,
+                product_name=r.name,
+                is_own=(r.sold_asin or "").upper() == own_asin,
+                units=int(r.units or 0),
+                purchases=int(r.purchases or 0),
+                sales=float(r.sales or 0),
+                commission=float(r.commission or 0),
+                pct_of_commission=(float(r.commission or 0) / total_comm) if total_comm > 0 else None,
+            )
+            for r in rows
+        ]
+        return CampaignProductsResponse(campaign_id=campaign_id, own_asin=own_asin, products=products)
+
+    return cache.get_or_compute(("campaign_products", campaign_id, date_from, date_to), _compute)
+
+
+def get_halo_opportunities(db: Session, date_from: date, date_to: date, min_commission: float = 20.0) -> HaloOpportunitiesResponse:
+    """
+    Campaigns whose revenue is mostly halo (own ASIN ~0, another ASIN dominates).
+    Joins per-link product data to google_ads for spend / name / status.
+    """
+    def _compute():
+        # Per (link_asin, link_type): own vs total commission + brand of the link's own ASIN.
+        agg = db.execute(text(
+            "SELECT link_asin, link_type,"
+            "  SUM(commission) AS total_comm,"
+            "  SUM(CASE WHEN sold_asin = link_asin THEN commission ELSE 0 END) AS own_comm,"
+            "  MAX(CASE WHEN sold_asin = link_asin THEN brand_name END) AS own_brand"
+            " FROM archer_link_product_day"
+            " WHERE geo = 'US' AND date BETWEEN :df AND :dt"
+            " GROUP BY link_asin, link_type"
+            " HAVING total_comm >= :minc"
+        ), {"df": date_from, "dt": date_to, "minc": min_commission}).fetchall()
+
+        out = []
+        for a in agg:
+            total = float(a.total_comm or 0)
+            own = float(a.own_comm or 0)
+            if total <= 0 or own > 0.05 * total:
+                continue  # own ASIN still pulls its weight — not an opportunity
+            # top non-own sold ASIN for this link
+            top = db.execute(text(
+                "SELECT sold_asin, MAX(sold_product_name) AS name, MAX(brand_name) AS brand,"
+                "       SUM(commission) AS comm, SUM(units) AS units"
+                " FROM archer_link_product_day"
+                " WHERE link_asin = :la AND link_type = :lt AND geo = 'US'"
+                "   AND date BETWEEN :df AND :dt AND sold_asin != :la"
+                " GROUP BY sold_asin ORDER BY comm DESC LIMIT 1"
+            ), {"la": a.link_asin, "lt": a.link_type, "df": date_from, "dt": date_to}).fetchone()
+            if not top:
+                continue
+            # campaign spend / name / status (latest) for this asin+type
+            g = db.execute(text(
+                "SELECT g.campaign_id, SUM(g.spend_usd) AS spend,"
+                "  MAX(g.campaign_name) AS name,"
+                "  (SELECT campaign_status FROM google_ads_campaign_day s"
+                "   WHERE s.campaign_id = g.campaign_id AND s.campaign_status IS NOT NULL"
+                "   ORDER BY s.date DESC LIMIT 1) AS status"
+                " FROM google_ads_campaign_day g"
+                " WHERE g.asin = :la AND COALESCE(g.campaign_type,'brand') = :lt"
+                "   AND g.date BETWEEN :df AND :dt"
+                " GROUP BY g.campaign_id ORDER BY spend DESC LIMIT 1"
+            ), {"la": a.link_asin, "lt": a.link_type, "df": date_from, "dt": date_to}).fetchone()
+            spend = float(g.spend or 0) if g else 0.0
+            out.append(HaloOpportunityRow(
+                campaign_id=g.campaign_id if g else None,
+                campaign_name=g.name if g else None,
+                status=g.status if g else None,
+                asin=a.link_asin,
+                campaign_type=a.link_type,
+                spend_usd=spend,
+                own_commission=own,
+                total_commission=total,
+                roas=(total / spend) if spend > 0 else None,
+                top_halo_asin=top.sold_asin,
+                top_halo_name=top.name,
+                top_halo_commission=float(top.comm or 0),
+                top_halo_units=int(top.units or 0),
+                same_brand=bool(a.own_brand and top.brand and a.own_brand == top.brand),
+            ))
+        out.sort(key=lambda x: -x.top_halo_commission)
+        return HaloOpportunitiesResponse(rows=out, total=len(out))
+
+    return cache.get_or_compute(("halo_opps", date_from, date_to, min_commission), _compute)
 
 
 # ── Distinct accounts ─────────────────────────────────────────────────────────

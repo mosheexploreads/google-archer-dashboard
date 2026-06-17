@@ -46,6 +46,33 @@ class ArcherProductDay(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class ArcherLinkProductDay(Base):
+    """
+    Per-product breakdown from the NEW /reports v2 API: which ASIN actually sold
+    under a given campaign link, per day. `link_asin` is the ASIN the link was
+    created for (= the campaign's ASIN); `sold_asin` is the product actually
+    purchased. When they differ, that's a halo sale. Only sales-bearing rows are
+    stored (new source only — legacy can't report this).
+    """
+    __tablename__ = "archer_link_product_day"
+
+    link_asin  = Column(String, primary_key=True, nullable=False)   # the campaign's ASIN
+    link_type  = Column(String, primary_key=True, nullable=False, default="brand")  # brand|amazon
+    sold_asin  = Column(String, primary_key=True, nullable=False)   # ASIN actually purchased
+    date       = Column(Date,   primary_key=True, nullable=False)
+    geo        = Column(String, primary_key=True, nullable=False, default="US")
+
+    sold_product_name = Column(String, nullable=True)
+    brand_name        = Column(String, nullable=True)
+    sales             = Column(Float, default=0.0)
+    commission        = Column(Float, default=0.0)
+    units             = Column(Integer, default=0)
+    purchases         = Column(Integer, default=0)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ProductCatalog(Base):
     """One row per (asin, country_code). Synced from Archer /getproducts."""
     __tablename__ = "product_catalog"
