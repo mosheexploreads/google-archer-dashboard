@@ -258,22 +258,10 @@ def sync_archer() -> int:
         # production-ready. Non-US rows inflate the DB and double revenue totals.
         geo = "US"
 
-        # ── Source 1: legacy /product_reports_all (deprecated but still served) ──
-        started = datetime.utcnow()
-        try:
-            rows = client.fetch_earnings(date_from, date_to, geo=None)
-            count, skipped = _upsert_archer_rows(db, rows, geo, "legacy")
-            logger.info("Archer legacy [%s]: upserted %d rows, skipped %d for %s–%s.",
-                        geo, count, skipped, date_from, date_to)
-            _log_sync(db, "archer", "success", started, records=count)
-            total_count += count
-        except Exception as exc:
-            db.rollback()
-            _log_sync(db, "archer", "error", started, error=str(exc))
-            logger.error("Archer legacy sync failed: %s", exc, exc_info=True)
-            failures.append(("legacy", exc))
-
-        # ── Source 2: new /reports v2 (link-attributed: direct + halo per link) ──
+        # ── Source 1: new /reports v2 (link-attributed: direct + halo per link) ──
+        # Runs FIRST: it's fast (cursor pagination) and it's what the dashboard
+        # shows by default, plus it feeds the per-product/halo tables. The slow
+        # deprecated legacy crawl must not delay it.
         started = datetime.utcnow()
         try:
             rows_v2 = client.fetch_reports_v2(date_from, date_to, geo=geo)
@@ -289,6 +277,21 @@ def sync_archer() -> int:
             _log_sync(db, "archer_v2", "error", started, error=str(exc))
             logger.error("Archer v2 sync failed: %s", exc, exc_info=True)
             failures.append(("new", exc))
+
+        # ── Source 2: legacy /product_reports_all (deprecated; slow archive) ──
+        started = datetime.utcnow()
+        try:
+            rows = client.fetch_earnings(date_from, date_to, geo=None)
+            count, skipped = _upsert_archer_rows(db, rows, geo, "legacy")
+            logger.info("Archer legacy [%s]: upserted %d rows, skipped %d for %s–%s.",
+                        geo, count, skipped, date_from, date_to)
+            _log_sync(db, "archer", "success", started, records=count)
+            total_count += count
+        except Exception as exc:
+            db.rollback()
+            _log_sync(db, "archer", "error", started, error=str(exc))
+            logger.error("Archer legacy sync failed: %s", exc, exc_info=True)
+            failures.append(("legacy", exc))
 
         if len(failures) == 2:
             # both failed — surface as a sync error like before

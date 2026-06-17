@@ -76,7 +76,7 @@ def db_stats():
 
         # Row counts for the big tables
         tables = ["google_ads_campaign_day", "product_catalog", "archer_product_day",
-                  "discovery_candidate", "discovery_result"]
+                  "archer_link_product_day", "discovery_candidate", "discovery_result"]
         counts = {}
         for t in tables:
             try:
@@ -91,6 +91,20 @@ def db_stats():
             " WHERE COALESCE(impressions,0)=0 AND COALESCE(clicks,0)=0 AND COALESCE(spend_usd,0)=0"
         )).scalar()
         return out
+    finally:
+        db.close()
+
+
+@router.get("/sync-logs")
+def sync_logs(limit: int = 12):
+    """Recent SyncLog rows (source, status, error) — for diagnosing sync issues."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text(
+            "SELECT source, status, started_at, finished_at, records_upserted, error_message"
+            " FROM sync_log ORDER BY id DESC LIMIT :lim"
+        ), {"lim": limit}).fetchall()
+        return {"logs": [dict(r._mapping) for r in rows]}
     finally:
         db.close()
 
