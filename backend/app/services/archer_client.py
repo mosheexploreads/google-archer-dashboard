@@ -40,6 +40,14 @@ _FIELD_ALIASES: Dict[str, List[str]] = {
 }
 
 
+# Archer replaced the attribution-link `geo` param with `marketplace`.
+_GEO_TO_MARKETPLACE = {
+    "US": "amazon.com", "UK": "amazon.co.uk", "GB": "amazon.co.uk",
+    "DE": "amazon.de", "FR": "amazon.fr", "IT": "amazon.it", "ES": "amazon.es",
+    "CA": "amazon.ca", "MX": "amazon.com.mx", "NL": "amazon.nl",
+}
+
+
 def _resolve_field(row: Dict[str, Any], canonical: str, default=None):
     """Return first matching alias value from row, or default."""
     for alias in _FIELD_ALIASES.get(canonical, [canonical]):
@@ -402,16 +410,20 @@ class ArcherClient:
         """
         Call POST /generate_attribution_link and return the attribution URL.
         Returns None if the API call fails (logged as warning, not raised).
+
+        Archer deprecated the `geo` param — it now requires `marketplace`
+        (amazon.com, amazon.co.uk, …) and returns 201 on success.
         """
+        marketplace = _GEO_TO_MARKETPLACE.get((geo or "US").upper(), "amazon.com")
         with httpx.Client() as client:
             token = self._get_token(client)
             resp = client.post(
                 f"{self._base_url}/generate_attribution_link",
-                json={"asin": asin, "link_name": link_name, "geo": geo},
+                json={"asin": asin, "link_name": link_name, "marketplace": marketplace},
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=30,
             )
-            resp.raise_for_status()
+            resp.raise_for_status()  # 201 Created is success and passes this
             data = resp.json()
             url = (
                 data.get("attribution_link")
