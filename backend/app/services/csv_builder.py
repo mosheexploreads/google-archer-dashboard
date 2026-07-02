@@ -104,6 +104,75 @@ def build_zip(items: List[Any]) -> bytes:
     return buf.getvalue()
 
 
+def build_delta_zip(items: List[Any]) -> bytes:
+    """
+    Build a 2-file ZIP (keywords + ads only) for items whose campaigns/ad-groups
+    are ALREADY uploaded to Google Ads. Reuses each item's existing campaign_name
+    so the rows attach to the existing campaigns. Enforces RSA minimums
+    (>=3 unique headlines, >=2 descriptions) and dedupes headlines to avoid
+    Google Ads Editor upload errors.
+    """
+    keywords: List[Dict] = []
+    ads: List[Dict] = []
+
+    for item in items:
+        if item.status != "done" or not item.attribution_link or not item.ad_copy:
+            continue
+        try:
+            ad_data = json.loads(item.ad_copy)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        headlines_raw = ad_data.get("headlines") or []
+        if not headlines_raw:
+            continue  # still empty — skip
+
+        campaign_name = ad_data.get("campaign_name") or f"Campaign - [Brand] {item.asin}"
+
+        for kw in ad_data.get("keywords", []):
+            if kw.startswith('"') and kw.endswith('"'):
+                match_type, kw_text = "Exact", kw.strip('"')
+            elif kw.startswith("[") and kw.endswith("]"):
+                match_type, kw_text = "Phrase", kw.strip("[]")
+            else:
+                match_type, kw_text = "Phrase", kw
+            keywords.append({
+                "Campaign": campaign_name, "Ad Group": "Ad Group 1",
+                "Keyword": kw_text, "Match Type": match_type, "Status": "Enabled",
+            })
+
+        # dedupe headlines (case-insensitive), truncate to 30 chars
+        seen_h = set()
+        headlines: List[str] = []
+        for h in headlines_raw:
+            h = h[:30].strip()
+            key = h.lower()
+            if h and key not in seen_h:
+                seen_h.add(key)
+                headlines.append(h)
+        descriptions = [d[:90].strip() for d in (ad_data.get("descriptions") or []) if d.strip()][:4]
+
+        if len(headlines) < 3 or len(descriptions) < 2:
+            continue  # would be rejected by Google as an incomplete RSA
+
+        ad_row: Dict = {
+            "Campaign": campaign_name, "Ad Group": "Ad Group 1",
+            "Ad Type": "Responsive search ad", "Final URL": item.attribution_link,
+            "Status": "Enabled",
+        }
+        for i, h in enumerate(headlines[:15], 1):
+            ad_row[f"Headline {i}"] = h
+        for i, dsc in enumerate(descriptions, 1):
+            ad_row[f"Description {i}"] = dsc
+        ads.append(ad_row)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("google_ads_keywords.csv", _to_csv(keywords))
+        zf.writestr("google_ads_ads.csv", _to_csv(ads))
+    return buf.getvalue()
+
+
 def _to_csv(rows: List[Dict]) -> str:
     """Serialize a list of dicts to CSV, preserving insertion-order column set."""
     if not rows:

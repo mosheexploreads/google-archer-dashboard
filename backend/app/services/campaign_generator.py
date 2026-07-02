@@ -13,12 +13,20 @@ Job state is DB-backed so it survives Railway restarts.
 """
 import json
 import logging
+import random
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic
+
+try:  # exception types for rate-limit handling (import defensively across SDK versions)
+    from anthropic import RateLimitError, APIStatusError, APIConnectionError
+    _RETRYABLE = (RateLimitError, APIStatusError, APIConnectionError)
+except Exception:  # pragma: no cover
+    _RETRYABLE = (Exception,)
 
 from ..config import get_settings
 from ..database import SessionLocal
@@ -28,7 +36,8 @@ from .archer_client import ArcherClient
 logger = logging.getLogger(__name__)
 
 _CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
-_MAX_WORKERS = 5
+_MAX_WORKERS = 4            # keep Anthropic concurrency modest to avoid 429 storms
+_CLAUDE_MAX_ATTEMPTS = 6    # per-item retries on rate-limit / transient errors
 
 # ── Claude prompt (ported verbatim from amazon-ads-automation) ─────────────
 
@@ -218,6 +227,88 @@ def start_job(items: List[Dict], campaign_type: str = "brand") -> str:
 
     _launch_job_thread(job_id)
     return job_id
+
+
+def regenerate_missing_ads(job_id: str) -> int:
+    """
+    Re-run ONLY the ad-copy step for 'done' items in this job whose ad_copy came
+    back empty (no headlines). Preserves each item's EXISTING campaign_name and
+    attribution_link so freshly generated ads/keywords attach to the campaigns
+    already uploaded to Google Ads. Runs in a background thread.
+    Returns the number of items queued for regeneration.
+    """
+    db = SessionLocal()
+    try:
+        items = db.query(CampaignJobItem).filter(
+            CampaignJobItem.job_id == job_id,
+            CampaignJobItem.status == "done",
+        ).all()
+        campaign_type = "brand"
+        job = db.query(CampaignJob).filter(CampaignJob.id == job_id).first()
+        if job:
+            campaign_type = job.campaign_type or "brand"
+
+        targets = []
+        for it in items:
+            n_head = 0
+            existing_name = None
+            if it.ad_copy:
+                try:
+                    ac = json.loads(it.ad_copy)
+                    n_head = len(ac.get("headlines") or [])
+                    existing_name = ac.get("campaign_name")
+                except Exception:
+                    pass
+            if n_head == 0 and it.attribution_link and it.product_name:
+                targets.append({
+                    "id": it.id, "asin": it.asin, "product_name": it.product_name,
+                    "campaign_type": campaign_type,
+                    "campaign_name": existing_name or f"Campaign - [Brand] {it.asin}",
+                })
+    finally:
+        db.close()
+
+    if targets:
+        t = threading.Thread(target=_run_regeneration, args=(job_id, targets),
+                             daemon=True, name=f"regen-{job_id[:8]}")
+        t.start()
+    return len(targets)
+
+
+def _run_regeneration(job_id: str, targets: List[Dict]) -> None:
+    logger.info("Regenerating ad copy for %d empty items in job %s", len(targets), job_id)
+    ok = 0
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {executor.submit(_regenerate_one, d): d["id"] for d in targets}
+        for future in as_completed(futures):
+            try:
+                if future.result():
+                    ok += 1
+            except Exception:
+                logger.exception("Regeneration error for item %s", futures[future])
+    logger.info("Regeneration for job %s complete: %d/%d filled", job_id, ok, len(targets))
+
+
+def _regenerate_one(d: Dict) -> bool:
+    """Fill ad copy for one previously-empty item, keeping its campaign_name."""
+    db = SessionLocal()
+    try:
+        copy = _generate_ad_copy(d["product_name"], d["asin"], d["campaign_type"])
+        copy["campaign_name"] = d["campaign_name"]  # preserve already-uploaded name
+        item = db.query(CampaignJobItem).filter(CampaignJobItem.id == d["id"]).first()
+        if not item:
+            return False
+        item.ad_copy = json.dumps(copy)
+        item.status = "done"
+        item.error = None
+        db.commit()
+        return True
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Could not regenerate ad copy for %s: %s", d["asin"], exc)
+        return False
+    finally:
+        db.close()
 
 
 def resume_pending_jobs() -> None:
@@ -458,7 +549,9 @@ def _fetch_product_name(asin: str) -> Optional[str]:
 
 def _generate_ad_copy(product_name: str, asin: str, campaign_type: str = "brand") -> Dict:
     """
-    Call Claude to generate keywords, headlines, and descriptions.
+    Call Claude (with rate-limit retry/backoff) to generate keywords, headlines,
+    and descriptions. Raises on persistent failure or empty result so the caller
+    marks the item failed (retryable) instead of silently producing an empty ad.
     campaign_type "brand" → branded keyword prompt
     campaign_type "amazon" → Amazon category keyword prompt (all keywords include "amazon")
     """
@@ -466,34 +559,45 @@ def _generate_ad_copy(product_name: str, asin: str, campaign_type: str = "brand"
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
 
-    client = Anthropic(api_key=settings.anthropic_api_key)
+    client = Anthropic(api_key=settings.anthropic_api_key, max_retries=0)
     template = _BRAND_PROMPT_TEMPLATE if campaign_type == "brand" else _AMAZON_PROMPT_TEMPLATE
     prompt = template.format(product_name=product_name, asin=asin)
 
-    try:
-        message = client.messages.create(
-            model=_CLAUDE_MODEL,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = message.content[0].text
-        parsed = _parse_response(text)
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, _CLAUDE_MAX_ATTEMPTS + 1):
+        try:
+            message = client.messages.create(
+                model=_CLAUDE_MODEL,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            parsed = _parse_response(message.content[0].text)
+            if not parsed.get("headlines"):
+                raise RuntimeError("Claude returned no headlines")
 
-        # Append type tag + ASIN to campaign name
-        base_name = parsed.get("campaign_name") or product_name[:50]
-        tag = "[Brand]" if campaign_type == "brand" else "[Amazon]"
-        parsed["campaign_name"] = f"{base_name} - {tag} {asin}"
-        return parsed
+            base_name = parsed.get("campaign_name") or product_name[:50]
+            tag = "[Brand]" if campaign_type == "brand" else "[Amazon]"
+            parsed["campaign_name"] = f"{base_name} - {tag} {asin}"
+            return parsed
 
-    except Exception as exc:
-        logger.exception("Claude API failed for ASIN %s", asin)
-        tag = "[Brand]" if campaign_type == "brand" else "[Amazon]"
-        return {
-            "campaign_name": f"Campaign - {tag} {asin}",
-            "keywords": [],
-            "headlines": [],
-            "descriptions": [],
-        }
+        except _RETRYABLE as exc:
+            last_exc = exc
+            if attempt < _CLAUDE_MAX_ATTEMPTS:
+                # exponential backoff w/ jitter: ~5,10,20,40,60s (capped)
+                delay = min(5 * (2 ** (attempt - 1)), 60) + random.uniform(0, 3)
+                logger.warning("Claude call for %s failed (attempt %d/%d): %s — retrying in %.0fs",
+                               asin, attempt, _CLAUDE_MAX_ATTEMPTS, exc, delay)
+                time.sleep(delay)
+            else:
+                logger.error("Claude call for %s exhausted retries: %s", asin, exc)
+        except Exception as exc:  # non-retryable (e.g. parse) — one retry then give up
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(2)
+            else:
+                break
+
+    raise RuntimeError(f"ad copy generation failed for {asin}: {last_exc}")
 
 
 def _parse_response(text: str) -> Dict:

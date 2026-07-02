@@ -21,7 +21,7 @@ from ..schemas import (
     CampaignCreatorStartRequest,
 )
 from ..services import campaign_generator
-from ..services.csv_builder import build_zip
+from ..services.csv_builder import build_zip, build_delta_zip
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/campaign-creator")
@@ -117,6 +117,59 @@ def list_job_items(job_id: str, status: str = None, missing_ads: bool = False,
             "error": it.error,
         })
     return {"job_id": job_id, "count": len(out), "items": out}
+
+
+@router.post("/jobs/{job_id}/regenerate-missing")
+def regenerate_missing_ads(job_id: str, db: Session = Depends(get_db)):
+    """
+    Re-run ad-copy generation for 'done' items with empty ad_copy, preserving
+    their existing campaign names + attribution links. Runs in the background;
+    poll /jobs/{id}/items?missing_ads=true to watch it drain, then
+    GET /jobs/{id}/download-delta for the new keyword + ad rows.
+    """
+    job = db.query(CampaignJob).filter(CampaignJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    queued = campaign_generator.regenerate_missing_ads(job_id)
+    return {"job_id": job_id, "queued": queued}
+
+
+@router.get("/jobs/{job_id}/download-delta")
+def download_delta(job_id: str, db: Session = Depends(get_db)):
+    """
+    ZIP with only keyword + ad rows for items whose campaigns are ALREADY
+    uploaded (fallback-named 'Campaign - ...'). Import on top of existing campaigns.
+    """
+    import json as _json
+    job = db.query(CampaignJob).filter(CampaignJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    items = db.query(CampaignJobItem).filter(
+        CampaignJobItem.job_id == job_id,
+        CampaignJobItem.status == "done",
+    ).all()
+
+    delta = []
+    for it in items:
+        if not it.ad_copy:
+            continue
+        try:
+            name = _json.loads(it.ad_copy).get("campaign_name") or ""
+        except Exception:
+            continue
+        if name.startswith("Campaign - "):   # fallback-named = campaign already uploaded empty
+            delta.append(it)
+
+    if not delta:
+        raise HTTPException(status_code=400, detail="No delta items ready (run regenerate-missing first)")
+
+    zip_bytes = build_delta_zip(delta)
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="campaigns_{job_id[:8]}_ADS_DELTA.zip"'},
+    )
 
 
 @router.get("/jobs/{job_id}/download")
