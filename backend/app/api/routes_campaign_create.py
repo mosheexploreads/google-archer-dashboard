@@ -21,7 +21,7 @@ from ..schemas import (
     CampaignCreatorStartRequest,
 )
 from ..services import campaign_generator
-from ..services.csv_builder import build_zip, build_delta_zip
+from ..services.csv_builder import build_zip, build_delta_zip, build_zip_renamed
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/campaign-creator")
@@ -169,6 +169,46 @@ def download_delta(job_id: str, db: Session = Depends(get_db)):
         io.BytesIO(zip_bytes),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="campaigns_{job_id[:8]}_ADS_DELTA.zip"'},
+    )
+
+
+@router.get("/jobs/{job_id}/download-fixed")
+def download_fixed(job_id: str, db: Session = Depends(get_db)):
+    """
+    Full 4-file ZIP for the fallback-named ('Campaign - ...') done items, with
+    campaign names rebuilt as 'Product Name - [Brand] ASIN'. Delete the old empty
+    campaigns in Google Ads Editor, then import this to re-create them correctly
+    (proper names + keywords + ads) in one step.
+    """
+    import json as _json
+    job = db.query(CampaignJob).filter(CampaignJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    items = db.query(CampaignJobItem).filter(
+        CampaignJobItem.job_id == job_id,
+        CampaignJobItem.status == "done",
+    ).all()
+
+    targets = []
+    for it in items:
+        if not it.ad_copy:
+            continue
+        try:
+            name = _json.loads(it.ad_copy).get("campaign_name") or ""
+        except Exception:
+            continue
+        if name.startswith("Campaign - "):
+            targets.append(it)
+
+    if not targets:
+        raise HTTPException(status_code=400, detail="No fallback-named items found")
+
+    zip_bytes = build_zip_renamed(targets)
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="campaigns_{job_id[:8]}_FIXED.zip"'},
     )
 
 

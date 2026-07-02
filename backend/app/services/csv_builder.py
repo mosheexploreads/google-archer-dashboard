@@ -104,6 +104,51 @@ def build_zip(items: List[Any]) -> bytes:
     return buf.getvalue()
 
 
+def _clean_campaign_name(product_name: str, asin: str, tag: str) -> str:
+    """Build 'Product Name - [Tag] ASIN', word-boundary truncated to keep it tidy."""
+    pn = " ".join((product_name or "").split()).strip()
+    if len(pn) > 50:
+        cut = pn[:50].rsplit(" ", 1)[0].strip()
+        pn = cut or pn[:50].strip()
+    if not pn:
+        pn = "Campaign"
+    return f"{pn} - {tag} {asin}"
+
+
+def build_zip_renamed(items: List[Any]) -> bytes:
+    """
+    Full 4-file Google Ads Editor ZIP for the given items, but with campaign names
+    rebuilt from the product name ('Product Name - [Brand] ASIN') instead of the
+    stored fallback ('Campaign - [Brand] ASIN'). Use to delete + re-import the
+    empty, badly-named campaigns with correct names + keywords + ads in one go.
+    """
+    renamed: List[Any] = []
+    for item in items:
+        if item.status != "done" or not item.attribution_link or not item.ad_copy:
+            continue
+        try:
+            ad = json.loads(item.ad_copy)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not (ad.get("headlines")):
+            continue
+        old = ad.get("campaign_name") or ""
+        tag = "[Amazon]" if "[Amazon]" in old else "[Brand]"
+        ad["campaign_name"] = _clean_campaign_name(item.product_name, item.asin, tag)
+        # shallow proxy carrying the rewritten ad_copy + originals build_zip needs
+        renamed.append(_ItemProxy(item, json.dumps(ad)))
+    return build_zip(renamed)
+
+
+class _ItemProxy:
+    """Wraps a CampaignJobItem, overriding ad_copy with a rewritten campaign name."""
+    def __init__(self, item: Any, ad_copy: str):
+        self._item = item
+        self.ad_copy = ad_copy
+    def __getattr__(self, name):
+        return getattr(self._item, name)
+
+
 def build_delta_zip(items: List[Any]) -> bytes:
     """
     Build a 2-file ZIP (keywords + ads only) for items whose campaigns/ad-groups
