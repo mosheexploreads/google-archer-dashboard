@@ -81,6 +81,44 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
     return _job_to_schema(job, db)
 
 
+@router.get("/jobs/{job_id}/items")
+def list_job_items(job_id: str, status: str = None, missing_ads: bool = False,
+                   db: Session = Depends(get_db)):
+    """
+    Read-only per-item dump for a job. Used to inspect failures and to
+    regenerate ad copy for 'done' items that came back with empty ad_copy.
+    Optional filters: status=done|failed, missing_ads=true (done but no headlines).
+    """
+    import json as _json
+    q = db.query(CampaignJobItem).filter(CampaignJobItem.job_id == job_id)
+    if status:
+        q = q.filter(CampaignJobItem.status == status)
+    out = []
+    for it in q.all():
+        campaign_name, n_head, n_kw = None, 0, 0
+        if it.ad_copy:
+            try:
+                ac = _json.loads(it.ad_copy)
+                campaign_name = ac.get("campaign_name")
+                n_head = len(ac.get("headlines") or [])
+                n_kw = len(ac.get("keywords") or [])
+            except Exception:
+                pass
+        if missing_ads and (it.status != "done" or n_head > 0):
+            continue
+        out.append({
+            "asin": it.asin,
+            "product_name": it.product_name,
+            "attribution_link": it.attribution_link,
+            "campaign_name": campaign_name,
+            "n_headlines": n_head,
+            "n_keywords": n_kw,
+            "status": it.status,
+            "error": it.error,
+        })
+    return {"job_id": job_id, "count": len(out), "items": out}
+
+
 @router.get("/jobs/{job_id}/download")
 def download_zip(job_id: str, db: Session = Depends(get_db)):
     job = db.query(CampaignJob).filter(CampaignJob.id == job_id).first()
